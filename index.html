@@ -2665,7 +2665,6 @@ function Spends({ T, showLogos, period, actions, enriched, onToggle, of }) {
   );
   return (
     <Screen T={T}>
-      <div style={{ marginBottom: 4 }}><LuneToggle T={T} enriched={enriched} onChange={onToggle} /></div>
       <AppHeader T={T} title="Spends" period={period} onPeriod={actions.openPeriod} right={accountsBtn} />
 
       {multi
@@ -3414,13 +3413,11 @@ function ExpensesApp() {
     <IOSDevice dark={T.dark} width={390} height={844}>
         <div style={{ position: 'relative', height: '100%', overflow: 'hidden', background: T.bg }}>
           <div className="exp-screens" style={{ height: '100%', overflowY: 'auto', overflowX: 'hidden', paddingTop: 56 }}>
-            {enriched
-              ? <Spends T={T} showLogos={t.showLogos} period={period} actions={actions} enriched={enriched} onToggle={setEnriched} of={of} />
-              : <RawTransactions T={T} period={period} enriched={enriched} onToggle={setEnriched} />}
+            <Spends T={T} showLogos={t.showLogos} period={period} actions={actions} of={of} />
           </div>
 
-          {/* Sheet stack — z-order matches how they open on top of one another. Only in the enriched flow. */}
-          {enriched && <React.Fragment>
+          {/* Sheet stack — z-order matches how they open on top of one another. */}
+          <React.Fragment>
           <AccountsSheet T={T} open={accountsOpen} onClose={() => setAccountsOpen(false)} linked={linked} onLink={of.openPicker} onUnlink={of.unlink} z={380} />
           <BankPickerSheet T={T} open={pickerOpen} onClose={() => setPickerOpen(false)} linked={linked} onPick={of.startConsent} z={390} />
           <ConsentSheet T={T} bank={consentBank} open={!!consentBank} onCancel={() => setConsentBank(null)} onApprove={of.link} onDone={of.linkDone} z={400} />
@@ -3432,7 +3429,7 @@ function ExpensesApp() {
           <TxnDetailSheet T={T} txn={txn} open={txnOpen} onClose={() => setTxnOpen(false)} showLogos={t.showLogos} onImprove={(tx) => { setTxnOpen(false); actions.openFeedback(tx); }} />
           <FeedbackSheet T={T} txn={fbTxn} open={fbOpen} onClose={() => setFbOpen(false)} showLogos={t.showLogos} />
           <PeriodSheet T={T} open={periodOpen} onClose={() => setPeriodOpen(false)} period={period} onPick={setPeriod} />
-          </React.Fragment>}
+          </React.Fragment>
         </div>
       </IOSDevice>
   );
