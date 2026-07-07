@@ -177,15 +177,17 @@
     { id: 'adib', name: 'ADIB', abbr: 'ADIB', full: 'Abu Dhabi Islamic Bank', color: '#003978', mask: '•• 4021', host: true, fresh: 'Live · host bank' },
     { id: 'fab',  name: 'FAB', abbr: 'FAB', full: 'First Abu Dhabi Bank', color: '#0B2E5B', mask: '•• 8830', fresh: 'Synced just now' },
     { id: 'enbd', name: 'Emirates NBD', abbr: 'ENBD', full: 'Emirates NBD', color: '#28427E', mask: '•• 1276', fresh: 'Synced 3 days ago', stale: true },
+    { id: 'mashreq', name: 'Mashreq', abbr: 'MQ', full: 'Mashreq Bank', color: '#E24A12', mask: '•• 5544', fresh: 'Synced just now' },
+    { id: 'cbd', name: 'CBD', abbr: 'CBD', full: 'Commercial Bank of Dubai', color: '#1E3160', mask: '•• 9902', fresh: 'Synced 1 h ago' },
   ];
   const MORE_BANKS = [
-    { id: 'mashreq', name: 'Mashreq', abbr: 'MQ', full: 'Mashreq Bank', color: '#E24A12', soon: true },
     { id: 'rakbank', name: 'RAKBANK', abbr: 'RAK', full: 'National Bank of Ras Al Khaimah', color: '#C8102E', soon: true },
     { id: 'dib', name: 'DIB', abbr: 'DIB', full: 'Dubai Islamic Bank', color: '#00693C', soon: true },
-    { id: 'cbd', name: 'CBD', abbr: 'CBD', full: 'Commercial Bank of Dubai', color: '#5C6670', soon: true },
   ];
 
-  const EXT_SHARE = { fab: 0.46, enbd: 0.36 }; // rough spend size vs the ADIB account
+  // Rough spend size vs the ADIB account. NOTE: key order seeds each bank's
+  // RNG — append new banks at the end so existing banks' data stays stable.
+  const EXT_SHARE = { fab: 0.46, enbd: 0.36, mashreq: 0.30, cbd: 0.22 };
   const EXT_EXCLUSIVE = {
     fab: [
       { cid: 10, name: "Nando's", total: 186.00, count: 3 },
@@ -194,6 +196,14 @@
     enbd: [
       { cid: 10, name: "Papa John's", total: 158.60, count: 4 },
       { cid: 11, name: 'Nike', total: 214.00, count: 1 },
+    ],
+    mashreq: [
+      { cid: 10, name: "Domino's", total: 164.20, count: 3 },
+      { cid: 11, name: 'LEGO', total: 289.00, count: 1 },
+    ],
+    cbd: [
+      { cid: 10, name: 'KFC', total: 96.50, count: 3 },
+      { cid: 10, name: 'Krispy Kreme', total: 58.40, count: 2 },
     ],
   };
 
@@ -1395,6 +1405,7 @@ const MERCHANT_DOMAIN = {
   'Notion': 'notion.so', 'Dropbox': 'dropbox.com', 'Google One': 'google.com', 'iCloud+': 'apple.com',
   // Open Finance demo — external-bank exclusive brands
   "Nando's": 'nandos.com', 'Sephora': 'sephora.com', "Papa John's": 'papajohns.com', 'Nike': 'nike.com',
+  "Domino's": 'dominos.com', 'LEGO': 'lego.com', 'KFC': 'kfc.com', 'Krispy Kreme': 'krispykreme.com',
 };
 // Best-available logo sources, tried in order: Clearbit (real logos) →
 // Google favicon @128 → brand monogram. Anything without a domain (ATM,
