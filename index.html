@@ -240,17 +240,61 @@
     BANK_BRAND_MONTHLY[bid] = out;
   });
 
+  // ── Account/card-type dimension ─────────────────────────────────────
+  // Each (bank, category, brand) bucket settles on ONE product — the way a
+  // person actually pays: bills from accounts, daily spend on cards.
+  const CARD_TYPES = [
+    { id: 'all', label: 'All accounts & cards', short: 'All cards' },
+    { id: 'current', label: 'Current account', short: 'Current' },
+    { id: 'savings', label: 'Savings account', short: 'Savings' },
+    { id: 'debit', label: 'Debit card', short: 'Debit card' },
+    { id: 'credit', label: 'Credit card', short: 'Credit card' },
+  ];
+  const BILL_CATS = new Set([9, 16, 17]); // Household, Loans, Insurance → paid from accounts
+  function assignType(bid, cid, name) {
+    const r = rng(cid * 131 + name.length * 17 + bid.length * 29 + name.charCodeAt(0))();
+    if (BILL_CATS.has(cid)) return r < 0.7 ? 'current' : 'savings';
+    if (cid === 6 || cid === 14) return r < 0.7 ? 'debit' : 'credit'; // groceries, transport
+    return r < 0.62 ? 'credit' : 'debit';                             // lifestyle spend
+  }
+  Object.keys(BANK_BRAND_MONTHLY).forEach((bid) => {
+    const byCat = BANK_BRAND_MONTHLY[bid];
+    Object.keys(byCat).forEach((cidStr) => { byCat[cidStr].forEach((bm) => { bm.type = assignType(bid, Number(cidStr), bm.name); }); });
+  });
+
   // The banks the CURRENT VIEW aggregates over: the linked set, or a single
   // bank when a filter chip is active. The app sets this before rendering, so
   // every existing data function below stays call-compatible.
   let LINKED = ['adib'];
   let ACTIVE = ['adib'];
+  let ACTIVE_TYPE = 'all';
   function setBanks(linked, active) {
     LINKED = linked && linked.length ? linked : ['adib'];
     ACTIVE = active && active.length ? active : LINKED;
   }
+  function setCardType(t) { ACTIVE_TYPE = t || 'all'; }
   function eachActiveBucket(cid, fn) {
-    ACTIVE.forEach((bid) => { ((BANK_BRAND_MONTHLY[bid] || {})[cid] || []).forEach((bm) => fn(bm, bid)); });
+    ACTIVE.forEach((bid) => { ((BANK_BRAND_MONTHLY[bid] || {})[cid] || []).forEach((bm) => {
+      if (ACTIVE_TYPE !== 'all' && bm.type !== ACTIVE_TYPE) return;
+      fn(bm, bid);
+    }); });
+  }
+  // Spend per card type across the LINKED banks (ignores the active filters)
+  // for the current period — powers the picker's per-type amounts.
+  function totalsByType(period) {
+    const n = monthsForPeriod(period);
+    const out = { all: 0 };
+    CATEGORIES.forEach((c) => {
+      LINKED.forEach((bid) => {
+        ((BANK_BRAND_MONTHLY[bid] || {})[c.id] || []).forEach((bm) => {
+          let t = 0;
+          for (let m = NUM_MONTHS - n; m < NUM_MONTHS; m++) t += bm.months[m].amount;
+          out[bm.type] = r2((out[bm.type] || 0) + t);
+          out.all = r2(out.all + t);
+        });
+      });
+    });
+    return out;
   }
   // Merge the active banks' buckets per brand (for aggregates & charts).
   function mergedBrandMonths(cid) {
@@ -295,20 +339,20 @@
   }
 
   let tid = 1000;
-  function mk(merchant, amount, day, mLabel, mYear, bank) {
+  function mk(merchant, amount, day, mLabel, mYear, bank, cardType) {
     const cid = MERCHANT_CAT[merchant] || 19;
     const cat = CATEGORIES.find((c) => c.id === cid);
-    return { id: ++tid, merchant, categoryId: cid, category: cat.name, categoryColor: cat.color, glyph: cat.glyph, amount, date: `${day} ${mLabel} ${mYear}`, day, month: mLabel, bank: bank || 'adib' };
+    return { id: ++tid, merchant, categoryId: cid, category: cat.name, categoryColor: cat.color, glyph: cat.glyph, amount, date: `${day} ${mLabel} ${mYear}`, day, month: mLabel, bank: bank || 'adib', cardType: cardType || 'debit' };
   }
   // Explode one (brand, month) bucket into individual transactions summing to `amount`.
-  function bucketTxns(name, cid, m, amount, count, bank) {
+  function bucketTxns(name, cid, m, amount, count, bank, cardType) {
     const n = Math.min(Math.max(count, 1), 4);
     const r = rng(cid * 911 + m * 37 + name.length * 7 + 5 + (bank === 'fab' ? 131 : bank === 'enbd' ? 257 : 0));
     const out = []; let remaining = amount;
     for (let i = 0; i < n; i++) {
       const amt = i === n - 1 ? Math.max(2, r2(remaining)) : Math.max(3, r2((amount / n) * (0.6 + r() * 0.8)));
       remaining = r2(remaining - amt);
-      out.push(mk(name, amt, String(Math.floor(r() * 27) + 1).padStart(2, '0'), MONTH_LABELS[m], MONTH_YEAR[m], bank));
+      out.push(mk(name, amt, String(Math.floor(r() * 27) + 1).padStart(2, '0'), MONTH_LABELS[m], MONTH_YEAR[m], bank, cardType));
     }
     return out;
   }
@@ -317,7 +361,7 @@
     const out = [];
     for (let m = end - 1; m >= start; m--) {
       const monthTxns = [];
-      CATEGORIES.forEach((c) => { eachActiveBucket(c.id, (bm, bid) => { const mm = bm.months[m]; if (mm.amount > 0) monthTxns.push(...bucketTxns(bm.name, c.id, m, mm.amount, mm.count, bid)); }); });
+      CATEGORIES.forEach((c) => { eachActiveBucket(c.id, (bm, bid) => { const mm = bm.months[m]; if (mm.amount > 0) monthTxns.push(...bucketTxns(bm.name, c.id, m, mm.amount, mm.count, bid, bm.type)); }); });
       monthTxns.sort((a, b) => Number(b.day) - Number(a.day));
       out.push(...monthTxns);
       if (cap && out.length >= cap) break;
@@ -326,19 +370,19 @@
   }
   function txnsForCategory(cid, n) {
     const N = n || 1; const out = [];
-    for (let m = NUM_MONTHS - 1; m >= NUM_MONTHS - N; m--) { eachActiveBucket(cid, (bm, bid) => { const mm = bm.months[m]; if (mm.amount > 0) out.push(...bucketTxns(bm.name, cid, m, mm.amount, mm.count, bid)); }); }
+    for (let m = NUM_MONTHS - 1; m >= NUM_MONTHS - N; m--) { eachActiveBucket(cid, (bm, bid) => { const mm = bm.months[m]; if (mm.amount > 0) out.push(...bucketTxns(bm.name, cid, m, mm.amount, mm.count, bid, bm.type)); }); }
     return out.slice(0, 80);
   }
   function txnsForBrand(cid, brandName, n) {
     const N = n || 1; const out = [];
     ACTIVE.forEach((bid) => {
       const bm = ((BANK_BRAND_MONTHLY[bid] || {})[cid] || []).find((x) => x.name === brandName); if (!bm) return;
-      for (let m = NUM_MONTHS - 1; m >= NUM_MONTHS - N; m--) { const mm = bm.months[m]; if (mm.amount > 0) out.push(...bucketTxns(brandName, cid, m, mm.amount, mm.count, bid)); }
+      for (let m = NUM_MONTHS - 1; m >= NUM_MONTHS - N; m--) { const mm = bm.months[m]; if (mm.amount > 0) out.push(...bucketTxns(brandName, cid, m, mm.amount, mm.count, bid, bm.type)); }
     });
     return out.slice(0, 60);
   }
   function txnsForCategoryMonth(cid, monthIdx) {
-    const out = []; eachActiveBucket(cid, (bm, bid) => { const mm = bm.months[monthIdx]; if (mm.amount > 0) out.push(...bucketTxns(bm.name, cid, monthIdx, mm.amount, mm.count, bid)); });
+    const out = []; eachActiveBucket(cid, (bm, bid) => { const mm = bm.months[monthIdx]; if (mm.amount > 0) out.push(...bucketTxns(bm.name, cid, monthIdx, mm.amount, mm.count, bid, bm.type)); });
     return out.sort((a, b) => Number(b.day) - Number(a.day));
   }
   function brandMonths(cid, brandName) {
@@ -396,6 +440,8 @@
     BANKS, MORE_BANKS, setBanks,
     linkedBanks: () => LINKED, activeBanks: () => ACTIVE,
     bankById: (id) => BANKS.find((b) => b.id === id) || MORE_BANKS.find((b) => b.id === id),
+    // Account/card-type dimension
+    CARD_TYPES, setCardType, cardType: () => ACTIVE_TYPE, totalsByType,
   };
 })();
 
@@ -2299,12 +2345,13 @@ function TxnDetailSheet({ T, txn, open, onClose, showLogos, onImprove }) {
             </div>
             {txn.bank && (() => {
               const b = window.EXP_DATA.BANKS.find((x) => x.id === txn.bank);
+              const ct = (window.EXP_DATA.CARD_TYPES || []).find((x) => x.id === txn.cardType);
               return b ? (
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '13px 0' }}>
                   <span style={{ fontSize: 14.5, color: T.muted }}>Account</span>
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                     <BankAvatar bank={b} size={22} radius={6} />
-                    <span style={{ fontSize: 14.5, color: T.ink, fontWeight: 560 }}>{b.name} {b.mask}</span>
+                    <span style={{ fontSize: 14.5, color: T.ink, fontWeight: 560 }}>{b.name}{ct ? ' ' + ct.label.toLowerCase() : ''} {b.mask}</span>
                   </span>
                 </div>
               ) : null;
@@ -2676,7 +2723,11 @@ function Spends({ T, showLogos, period, actions, enriched, onToggle, of }) {
   );
   return (
     <Screen T={T}>
-      <AppHeader T={T} title="Spends" period={period} onPeriod={actions.openPeriod} right={accountsBtn} />
+      <AppHeader T={T} title="Spends" right={accountsBtn} />
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 14 }}>
+        <PeriodPill T={T} period={period} onClick={actions.openPeriod} inline />
+        <CardTypePill T={T} value={of.cardType} onClick={of.openCardType} />
+      </div>
 
       {multi
         ? <BankChips T={T} linked={of.linked} filter={of.filter} onFilter={of.setFilter} onLink={of.openPicker} />
@@ -2688,7 +2739,22 @@ function Spends({ T, showLogos, period, actions, enriched, onToggle, of }) {
         </div>
       )}
 
+      {/* Empty state — a filter combo with no spend degrades gracefully. */}
+      {TOTAL <= 0 && (
+        <div style={{ marginTop: 16 }}>
+          <Card T={T} pad={24} style={{ textAlign: 'center' }}>
+            <span style={{ width: 44, height: 44, borderRadius: 13, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: hexA(T.accent, T.dark ? 0.18 : 0.1), color: T.accent }}>
+              <CardTypeIcon size={20} stroke="currentColor" />
+            </span>
+            <div style={{ fontSize: 15.5, fontWeight: 660, color: T.ink, marginTop: 12 }}>No spending here</div>
+            <div style={{ fontSize: 13, color: T.muted, marginTop: 5, lineHeight: 1.5 }}>Nothing was paid with this account or card type in the selected period and banks.</div>
+            <button className="pressable" onClick={() => of.setCardType('all')} style={{ marginTop: 14, padding: '10px 18px', borderRadius: 999, border: 'none', cursor: 'pointer', fontFamily: 'inherit', background: T.accent, color: '#fff', fontSize: 13, fontWeight: 620 }}>Show all accounts &amp; cards</button>
+          </Card>
+        </div>
+      )}
+
       {/* Hero: the clean ring + the ranked category list, one focal block. */}
+      {TOTAL > 0 && (
       <div style={{ marginTop: 16 }}>
         <Card T={T} pad={20}>
           <SpendRing data={CATEGORY_SPEND} total={TOTAL} prevTotal={prevTotal}
@@ -2706,6 +2772,7 @@ function Spends({ T, showLogos, period, actions, enriched, onToggle, of }) {
           ))}
         </Card>
       </div>
+      )}
 
       {/* Two entry points: category (+brand) breakdown, and the historical view */}
       <div style={{ marginTop: 22 }}>
@@ -3298,6 +3365,75 @@ function ConsentSheet({ T, bank, open, onCancel, onApprove, onDone, z = 400 }) {
   );
 }
 
+// ── Account/card-type filter — pill + picker sheet ─────────────────────
+function CardTypeIcon({ size = 16, stroke = 'currentColor', sw = 1.8 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" style={{ display: 'block' }}>
+      <rect x="3" y="5.5" width="18" height="13" rx="2.5" stroke={stroke} strokeWidth={sw} />
+      <path d="M3 10h18" stroke={stroke} strokeWidth={sw} />
+      <path d="M6.5 14.5h4" stroke={stroke} strokeWidth={sw} strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function CardTypePill({ T, value, onClick }) {
+  const types = OFD().CARD_TYPES;
+  const t = types.find((x) => x.id === value) || types[0];
+  return (
+    <button onClick={onClick} style={{
+      display: 'inline-flex', alignItems: 'center', gap: 7, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
+      background: T.surface, border: `1px solid ${value !== 'all' ? hexA(T.accent, 0.55) : T.line}`, borderRadius: 999,
+      padding: '8px 13px', color: T.ink, fontFamily: 'inherit',
+      fontSize: 13.5, fontWeight: 580, boxShadow: T.dark ? 'none' : T.cardShadow,
+    }}>
+      <span style={{ color: T.accent, display: 'flex' }}><CardTypeIcon size={16} stroke={T.accent} /></span>
+      {t.short}
+      <UIIcon name="chevD" size={15} stroke={T.muted} />
+    </button>
+  );
+}
+
+function CardTypeSheet({ T, open, onClose, value, onPick, period, z = 370 }) {
+  const D0 = OFD();
+  const totals = open ? D0.totalsByType(period) : {};
+  return (
+    <Sheet T={T} open={open} onClose={onClose} title="Accounts & cards" z={z}>
+      <div style={{ fontSize: 13, color: T.muted, lineHeight: 1.5, margin: '0 2px 14px' }}>
+        Filter your spending by the account or card it was paid with — across every linked bank.
+      </div>
+      <Card T={T} pad="2px 16px">
+        {D0.CARD_TYPES.map((t, i, a) => {
+          const amt = totals[t.id] || 0;
+          const disabled = t.id !== 'all' && amt <= 0;
+          const active = value === t.id;
+          return (
+            <button key={t.id} disabled={disabled} className={disabled ? undefined : 'pressable-row'}
+              onClick={() => { onPick(t.id); onClose(); }} style={{
+                display: 'flex', alignItems: 'center', gap: 12, width: '100%', padding: '13px 0', position: 'relative',
+                border: 'none', background: 'transparent', cursor: disabled ? 'default' : 'pointer',
+                fontFamily: 'inherit', textAlign: 'left', opacity: disabled ? 0.45 : 1,
+              }}>
+              <span style={{ width: 36, height: 36, borderRadius: 10, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: hexA(T.accent, T.dark ? 0.18 : 0.1), color: T.accent }}>
+                <CardTypeIcon size={17} stroke="currentColor" />
+              </span>
+              <span style={{ flex: 1, minWidth: 0, fontSize: 15, fontWeight: active ? 660 : 580, color: T.ink }}>{t.label}</span>
+              {active && (
+                <span style={{ width: 20, height: 20, borderRadius: 999, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: T.accent, color: '#fff' }}>
+                  <CheckIcon size={11} stroke="#fff" />
+                </span>
+              )}
+              <span style={{ fontSize: 13.5, fontWeight: 600, color: active ? T.ink : T.muted, fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>
+                <Dirham size={11} color="currentColor" style={{ marginRight: 3 }} />{fmtAED(amt)}
+              </span>
+              {i < a.length - 1 && <div style={{ position: 'absolute', left: 48, right: 0, bottom: 0, height: 1, background: T.faint }} />}
+            </button>
+          );
+        })}
+      </Card>
+    </Sheet>
+  );
+}
+
 function OFToast({ T, message }) {
   if (!message) return null;
   return (
@@ -3315,7 +3451,7 @@ function OFToast({ T, message }) {
   );
 }
 
-Object.assign(window, { BankAvatar, ShieldIcon, LinkPromoCard, BankChips, AccountsSheet, BankPickerSheet, ConsentSheet, OFToast });
+Object.assign(window, { BankAvatar, ShieldIcon, LinkPromoCard, BankChips, AccountsSheet, BankPickerSheet, ConsentSheet, OFToast, CardTypePill, CardTypeSheet, CardTypeIcon });
 
 </script>
 
@@ -3359,12 +3495,16 @@ function ExpensesApp() {
   const [pickerOpen, setPickerOpen] = React.useState(false);
   const [consentBank, setConsentBank] = React.useState(null);
   const [ofToast, setOfToast] = React.useState(null);
+  const [cardType, setCardTypeState] = React.useState('all');
+  const [cardTypeOpen, setCardTypeOpen] = React.useState(false);
   const effFilter = bankFilter !== 'all' && !linked.includes(bankFilter) ? 'all' : bankFilter;
-  // Point every data function at the current bank set BEFORE children render.
+  // Point every data function at the current bank set + card type BEFORE children render.
   window.EXP_DATA.setBanks(linked, effFilter === 'all' ? linked : [effFilter]);
+  window.EXP_DATA.setCardType(cardType);
 
   const of = {
     linked, filter: effFilter, setFilter: setBankFilter,
+    cardType, setCardType: setCardTypeState, openCardType: () => setCardTypeOpen(true),
     openAccounts: () => setAccountsOpen(true),
     openPicker: () => { setAccountsOpen(false); setPickerOpen(true); },
     startConsent: (bank) => { setPickerOpen(false); setConsentBank(bank); },
@@ -3432,6 +3572,7 @@ function ExpensesApp() {
           <AccountsSheet T={T} open={accountsOpen} onClose={() => setAccountsOpen(false)} linked={linked} onLink={of.openPicker} onUnlink={of.unlink} z={380} />
           <BankPickerSheet T={T} open={pickerOpen} onClose={() => setPickerOpen(false)} linked={linked} onPick={of.startConsent} z={390} />
           <ConsentSheet T={T} bank={consentBank} open={!!consentBank} onCancel={() => setConsentBank(null)} onApprove={of.link} onDone={of.linkDone} z={400} />
+          <CardTypeSheet T={T} open={cardTypeOpen} onClose={() => setCardTypeOpen(false)} value={cardType} onPick={setCardTypeState} period={period} z={370} />
           <OFToast T={T} message={ofToast} />
           <BreakdownSheet T={T} open={breakdownOpen} onClose={() => setBreakdownOpen(false)} showLogos={t.showLogos} period={period} actions={actions} z={210} />
           <AllTxnsSheet T={T} open={allTxnsOpen} onClose={() => setAllTxnsOpen(false)} showLogos={t.showLogos} period={period} onTxn={(tx) => actions.openTxn(tx)} z={230} />
