@@ -3903,7 +3903,7 @@ function CardTypePill({ T, value, product = 'all', owner = 'all', onClick }) {
       fontSize: 13.5, fontWeight: 580, boxShadow: T.dark ? 'none' : T.cardShadow,
     }}>
       <span style={{ color: T.accent, display: 'flex' }}><CardTypeIcon size={16} stroke={T.accent} /></span>
-      {active ? parts.join(' · ') : 'All cards'}
+      {active ? parts.join(' · ') : 'All accounts & cards'}
       <UIIcon name="chevD" size={15} stroke={T.muted} />
     </button>
   );
@@ -3978,21 +3978,17 @@ function CardTypeSheet({ T, open, onClose, value, onPick, product, onProduct, ow
           onClick: () => { onPick('all'); onProduct('all'); onClose(); } })}
       </Card>
 
-      {[['account', 'Accounts'], ['card', 'Cards']].map(([kind, heading]) => (
-        <div key={kind}>
-          <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: T.muted, margin: '16px 4px 8px' }}>{heading}</div>
-          <Card T={T} pad="2px 16px">
-            {D0.CARD_TYPES.filter((t) => t.kind === kind).map((t, i, a) => {
-              const amt = typeTotals[t.id] || 0;
-              return row({ key: t.id, icon: typeIcon, title: t.label, amt, disabled: amt <= 0,
-                active: value === t.id && product === 'all', divider: i < a.length - 1,
-                onClick: () => { onPick(t.id); onProduct('all'); onClose(); } });
-            })}
-          </Card>
-        </div>
-      ))}
+      <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: T.muted, margin: '16px 4px 8px' }}>By type</div>
+      <Card T={T} pad="2px 16px">
+        {D0.CARD_TYPES.filter((t) => t.id !== 'all').map((t, i, a) => {
+          const amt = typeTotals[t.id] || 0;
+          return row({ key: t.id, icon: typeIcon, title: t.label, amt, disabled: amt <= 0,
+            active: value === t.id && product === 'all', divider: i < a.length - 1,
+            onClick: () => { onPick(t.id); onProduct('all'); onClose(); } });
+        })}
+      </Card>
 
-      <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: T.muted, margin: '16px 4px 8px' }}>By account & card</div>
+      <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: T.muted, margin: '16px 4px 8px' }}>Your accounts & cards</div>
       {banks.map((b) => {
         const prods = D0.PRODUCTS.filter((p) => p.bank === b.id && (owner === 'all' || p.owner === owner));
         if (!prods.length) return null;
