@@ -376,6 +376,24 @@
     return LINKED.map((bid) => ({ bank: BANKS.find((b) => b.id === bid), total: (sums[bid] || {}).total || 0, count: (sums[bid] || {}).count || 0 }))
       .sort((a, b) => b.total - a.total);
   }
+  // Ranked composition of the CURRENT VIEW (honours bank chips + type +
+  // product + owner filters) along one dimension — the rankings card.
+  function rankBy(period, dim) {
+    const n = monthsForPeriod(period);
+    const sums = {};
+    CATEGORIES.forEach((c) => {
+      eachActiveBucket(c.id, (bm, bid) => {
+        let t = 0, k = 0;
+        for (let m = NUM_MONTHS - n; m < NUM_MONTHS; m++) { t += bm.months[m].amount; k += bm.months[m].count; }
+        if (!t) return;
+        const key = dim === 'bank' ? bid : dim === 'product' ? bm.product : PRODUCT_BY_ID[bm.product].owner;
+        const e = sums[key] || (sums[key] = { total: 0, count: 0 });
+        e.total = r2(e.total + t); e.count += k;
+      });
+    });
+    const rows = Object.keys(sums).map((k) => ({ key: k, total: sums[k].total, count: sums[k].count })).sort((a, b) => b.total - a.total);
+    return { rows, total: r2(rows.reduce((s, x) => s + x.total, 0)) };
+  }
 
   // Merge the active banks' buckets per brand (for aggregates & charts).
   function mergedBrandMonths(cid) {
@@ -530,7 +548,7 @@
     ownerById: (id) => OWNER_BY_ID[id],
     setProduct, product: () => ACTIVE_PRODUCT,
     setOwner, owner: () => ACTIVE_OWNER,
-    totalsByProduct, totalsByOwner, totalsByBank,
+    totalsByProduct, totalsByOwner, totalsByBank, rankBy,
   };
 })();
 
@@ -2711,6 +2729,90 @@ function CategoryRankRow({ T, cat, total, onClick, divider }) {
   );
 }
 
+// ── "Where it comes from" — ranked composition of the current view by
+//    bank, account/card or owner (ADIB feedback: ranking of spend by owner
+//    and card). Tapping a row focuses the whole screen on it.
+function SourceRankRow({ T, icon, title, caption, amount, pct, color, onClick, divider }) {
+  return (
+    <button className="pressable-row" onClick={onClick} style={{
+      display: 'flex', alignItems: 'center', gap: 13, width: '100%', padding: '11px 0',
+      border: 'none', background: 'transparent', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left', position: 'relative',
+    }}>
+      {icon}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 }}>
+          <span style={{ fontSize: 14.5, fontWeight: 600, color: T.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {title}
+            {caption && <span style={{ fontSize: 12, fontWeight: 540, color: T.muted, marginLeft: 7 }}>{caption}</span>}
+          </span>
+          <span style={{ fontSize: 14.5, fontWeight: 600, color: T.ink, fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}><Dirham size={12} color="currentColor" style={{ marginRight: 3 }} />{fmtAED(amount)}</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginTop: 8 }}>
+          <div style={{ flex: 1, height: 5, borderRadius: 999, background: hexA(color, T.dark ? 0.24 : 0.14), overflow: 'hidden' }}>
+            <div style={{ height: '100%', width: `${pct}%`, background: color, borderRadius: 999, transformOrigin: 'left center', animation: 'growX .55s var(--ease-out, cubic-bezier(.23,1,.32,1)) both' }} />
+          </div>
+          <span style={{ fontSize: 11.5, fontWeight: 600, color: T.muted, fontVariantNumeric: 'tabular-nums', width: 30, textAlign: 'right' }}>{pct}%</span>
+        </div>
+      </div>
+      {divider && <div style={{ position: 'absolute', left: 51, right: 0, bottom: 0, height: 1, background: T.faint }} />}
+    </button>
+  );
+}
+
+function SourceRankCard({ T, period, of }) {
+  const [dim, setDim] = React.useState('bank');
+  const D0 = window.EXP_DATA;
+  const { rows, total } = D0.rankBy(period, dim);
+  if (!rows.length) return null;
+  const OWNER_COLORS = { you: T.accent, wife: '#8C704B' };
+
+  const rowProps = (r) => {
+    if (dim === 'bank') {
+      const b = D0.bankById(r.key);
+      return { icon: <BankAvatar bank={b} size={38} radius={11} />, title: b.name,
+        color: b.color, onClick: () => of.setFilter(r.key) };
+    }
+    if (dim === 'product') {
+      const p = D0.productById(r.key); const b = D0.bankById(p.bank);
+      return {
+        icon: <BankAvatar bank={b} size={38} radius={11} />,
+        title: (p.nickname || p.label) + ' ' + p.mask,
+        color: b.color,
+        onClick: () => { of.setProduct(r.key); of.setCardType('all'); },
+      };
+    }
+    const o = D0.ownerById(r.key);
+    const col = OWNER_COLORS[r.key] || T.accent;
+    return {
+      icon: (
+        <span style={{ width: 38, height: 38, borderRadius: 999, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: hexA(col, T.dark ? 0.26 : 0.13), color: T.dark ? '#fff' : col, fontSize: 15, fontWeight: 700 }}>
+          {o.name.charAt(0)}
+        </span>
+      ),
+      title: o.name, caption: `${r.count} transactions`, color: col,
+      onClick: () => of.setOwner(r.key),
+    };
+  };
+
+  return (
+    <div style={{ marginTop: 22 }}>
+      <Card T={T} pad={18}>
+        <div style={{ margin: '2px 0 8px' }}>
+          <div style={{ fontSize: 13, fontWeight: 640, color: T.ink, letterSpacing: '-0.01em' }}>Where it comes from</div>
+          <div style={{ marginTop: 10 }}>
+            <SortSwitch T={T} value={dim} onChange={setDim} options={[['bank', 'Banks'], ['product', 'Accounts & cards'], ['owner', 'Owners']]} />
+          </div>
+        </div>
+        {rows.map((r, i, a) => {
+          const p = rowProps(r);
+          const pct = total ? Math.round((r.total / total) * 100) : 0;
+          return <SourceRankRow key={r.key} T={T} {...p} amount={r.total} pct={pct} divider={i < a.length - 1} />;
+        })}
+      </Card>
+    </div>
+  );
+}
+
 // Trend entry — full-width row, single line (no wrapping), tinted icon + caption.
 function TrendRow({ T, icon, label, caption, onClick, divider }) {
   return (
@@ -2871,6 +2973,9 @@ function Spends({ T, showLogos, period, actions, enriched, onToggle, of }) {
         </Card>
       </div>
       )}
+
+      {/* Ranked composition — by bank, account/card, owner (ADIB feedback) */}
+      {TOTAL > 0 && <SourceRankCard T={T} period={period} of={of} />}
 
       {/* Two entry points: category (+brand) breakdown, and the historical view */}
       <div style={{ marginTop: 22 }}>
