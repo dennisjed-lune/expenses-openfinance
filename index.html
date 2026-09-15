@@ -249,52 +249,44 @@
     { id: 'you',  name: 'You',  short: 'Mine' },
     { id: 'wife', name: 'Wife', short: 'Wife' },
   ];
+  // One product per bank per owner (Dennis 2026-09-15: fewer accounts).
+  // You: ADIB current + ENBD credit + Mashreq debit. Wife: ADIB current +
+  // FAB credit + CBD debit. ADIB hosts one account each.
   const PRODUCTS = [
-    { id: 'adib-cur',  bank: 'adib',    type: 'current', label: 'Current account',  mask: '•• 4021', owner: 'you' },
-    { id: 'adib-sav',  bank: 'adib',    type: 'savings', label: 'Savings account',  mask: '•• 7738', owner: 'you' },
-    { id: 'adib-deb',  bank: 'adib',    type: 'debit',   label: 'Visa Debit',       mask: '•• 2210', owner: 'you' },
-    { id: 'adib-cov',  bank: 'adib',    type: 'credit',  label: 'Covered Card',     mask: '•• 8402', owner: 'you' },
-    { id: 'fab-cur',   bank: 'fab',     type: 'current', label: 'Current account',  mask: '•• 8830', owner: 'you', nickname: 'Salary account' },
-    { id: 'fab-cc',    bank: 'fab',     type: 'credit',  label: 'Cashback Card',    mask: '•• 5011', owner: 'you' },
-    { id: 'fab-wife',  bank: 'fab',     type: 'current', label: 'Current account',  mask: '•• 6644', owner: 'wife', nickname: "Wife's FAB" },
-    { id: 'enbd-cur',  bank: 'enbd',    type: 'current', label: 'Current account',  mask: '•• 1276', owner: 'wife', nickname: "Wife's ENBD" },
-    { id: 'enbd-deb',  bank: 'enbd',    type: 'debit',   label: 'Debit card',       mask: '•• 3305', owner: 'wife' },
-    { id: 'mq-cur',    bank: 'mashreq', type: 'current', label: 'Current account',  mask: '•• 5544', owner: 'you' },
-    { id: 'mq-cc',     bank: 'mashreq', type: 'credit',  label: 'Credit Card',      mask: '•• 7208', owner: 'you', nickname: 'Travel card' },
-    { id: 'cbd-cur',   bank: 'cbd',     type: 'current', label: 'Current account',  mask: '•• 9902', owner: 'you' },
+    { id: 'adib-you',  bank: 'adib',    type: 'current', label: 'Current account', mask: '•• 4021', owner: 'you' },
+    { id: 'enbd-you',  bank: 'enbd',    type: 'credit',  label: 'Credit Card',     mask: '•• 1276', owner: 'you', nickname: 'Travel card' },
+    { id: 'mq-you',    bank: 'mashreq', type: 'debit',   label: 'Debit Card',      mask: '•• 5544', owner: 'you' },
+    { id: 'adib-wife', bank: 'adib',    type: 'current', label: 'Current account', mask: '•• 7738', owner: 'wife', nickname: "Wife's ADIB" },
+    { id: 'fab-wife',  bank: 'fab',     type: 'credit',  label: 'Credit Card',     mask: '•• 6644', owner: 'wife', nickname: "Wife's FAB" },
+    { id: 'cbd-wife',  bank: 'cbd',     type: 'debit',   label: 'Debit Card',      mask: '•• 9902', owner: 'wife' },
   ];
   const PRODUCT_BY_ID = {}; PRODUCTS.forEach((p) => { PRODUCT_BY_ID[p.id] = p; });
   const OWNER_BY_ID = {}; OWNERS.forEach((o) => { OWNER_BY_ID[o.id] = o; });
 
   const CARD_TYPES = [
-    { id: 'all', label: 'All accounts & cards', short: 'All cards' },
-    { id: 'current', label: 'Current account', short: 'Current' },
-    { id: 'savings', label: 'Savings account', short: 'Savings' },
-    { id: 'debit', label: 'Debit card', short: 'Debit card' },
-    { id: 'credit', label: 'Credit card', short: 'Credit card' },
+    { id: 'all', label: 'All accounts & cards', short: 'Accounts & cards' },
+    { id: 'current', label: 'Current account', short: 'Accounts', kind: 'account' },
+    { id: 'debit', label: 'Debit card', short: 'Debit card', kind: 'card' },
+    { id: 'credit', label: 'Credit card', short: 'Credit card', kind: 'card' },
   ];
 
   // Each (bank, category, brand) bucket settles on ONE product — the way a
   // person actually pays: bills from accounts, daily spend on cards, family
   // staples on the wife's FAB account; ENBD is entirely the wife's bank.
-  const BILL_CATS = new Set([9, 16, 17]);   // Household, Loans, Insurance
-  const DAILY_CATS = new Set([6, 14]);      // Groceries, Transportation
   const FAMILY_CATS = new Set([6, 9, 7]);   // wife-leaning at FAB
   function assignProduct(bid, cid, name) {
     const r = rng(cid * 131 + name.length * 17 + bid.length * 29 + name.charCodeAt(0))();
     if (bid === 'adib') {
-      if (BILL_CATS.has(cid)) return r < 0.75 ? 'adib-cur' : 'adib-sav';
-      if (DAILY_CATS.has(cid)) return r < 0.7 ? 'adib-deb' : 'adib-cov';
-      return r < 0.62 ? 'adib-cov' : 'adib-deb';
+      // The host bank serves the whole household: family staples lean to the
+      // wife's ADIB account, bills and the rest mostly to yours.
+      if (FAMILY_CATS.has(cid)) return r < 0.6 ? 'adib-wife' : 'adib-you';
+      if (cid === 10) return r < 0.35 ? 'adib-wife' : 'adib-you'; // dining
+      return r < 0.15 ? 'adib-wife' : 'adib-you';
     }
-    if (bid === 'fab') {
-      if (BILL_CATS.has(cid)) return r < 0.85 ? 'fab-wife' : 'fab-cur';
-      if (FAMILY_CATS.has(cid) || cid === 10) return r < 0.8 ? 'fab-wife' : 'fab-cc'; // family staples + dining
-      return r < 0.72 ? 'fab-cc' : 'fab-cur';
-    }
-    if (bid === 'enbd') return BILL_CATS.has(cid) || r >= 0.7 ? 'enbd-cur' : 'enbd-deb';
-    if (bid === 'mashreq') return BILL_CATS.has(cid) || r >= 0.7 ? 'mq-cur' : 'mq-cc';
-    return 'cbd-cur';
+    if (bid === 'enbd') return 'enbd-you';
+    if (bid === 'mashreq') return 'mq-you';
+    if (bid === 'fab') return 'fab-wife';
+    return 'cbd-wife';
   }
   Object.keys(BANK_BRAND_MONTHLY).forEach((bid) => {
     const byCat = BANK_BRAND_MONTHLY[bid];
@@ -395,6 +387,26 @@
     return { rows, total: r2(rows.reduce((s, x) => s + x.total, 0)) };
   }
 
+  // One side of a comparison: full aggregates under a temporary scope
+  // ({bank} | {product} | {owner}) without disturbing the live view filters.
+  function compareSide(period, scope) {
+    const sA = ACTIVE, sT = ACTIVE_TYPE, sP = ACTIVE_PRODUCT, sO = ACTIVE_OWNER;
+    ACTIVE = scope.bank ? [scope.bank] : LINKED;
+    ACTIVE_TYPE = 'all';
+    ACTIVE_PRODUCT = scope.product || 'all';
+    ACTIVE_OWNER = scope.owner || 'all';
+    const n = monthsForPeriod(period);
+    const cur = aggregate(NUM_MONTHS - n, NUM_MONTHS);
+    const ps = Math.max(0, NUM_MONTHS - 2 * n), pe = NUM_MONTHS - n;
+    const prevTotal = pe > ps ? aggregate(ps, pe).total : null;
+    const monthly = monthlyTotals();
+    const brands = [];
+    cur.cats.forEach((c) => c.brands.forEach((b) => brands.push({ ...b, catColor: c.color, glyph: c.glyph })));
+    brands.sort((a, b) => b.total - a.total);
+    ACTIVE = sA; ACTIVE_TYPE = sT; ACTIVE_PRODUCT = sP; ACTIVE_OWNER = sO;
+    return { cats: cur.cats, total: cur.total, prevTotal, monthly, brands: brands.slice(0, 5), count: cur.cats.reduce((s, c) => s + c.count, 0) };
+  }
+
   // Merge the active banks' buckets per brand (for aggregates & charts).
   function mergedBrandMonths(cid) {
     const map = new Map();
@@ -441,7 +453,7 @@
   function mk(merchant, amount, day, mLabel, mYear, bank, productId) {
     const cid = MERCHANT_CAT[merchant] || 19;
     const cat = CATEGORIES.find((c) => c.id === cid);
-    const p = PRODUCT_BY_ID[productId] || PRODUCT_BY_ID['adib-deb'];
+    const p = PRODUCT_BY_ID[productId] || PRODUCT_BY_ID['adib-you'];
     return { id: ++tid, merchant, categoryId: cid, category: cat.name, categoryColor: cat.color, glyph: cat.glyph, amount, date: `${day} ${mLabel} ${mYear}`, day, month: mLabel, bank: bank || 'adib', product: p.id, cardType: p.type, owner: p.owner };
   }
   // Explode one (brand, month) bucket into individual transactions summing to `amount`.
@@ -548,7 +560,7 @@
     ownerById: (id) => OWNER_BY_ID[id],
     setProduct, product: () => ACTIVE_PRODUCT,
     setOwner, owner: () => ACTIVE_OWNER,
-    totalsByProduct, totalsByOwner, totalsByBank, rankBy,
+    totalsByProduct, totalsByOwner, totalsByBank, rankBy, compareSide,
   };
 })();
 
@@ -2732,13 +2744,17 @@ function CategoryRankRow({ T, cat, total, onClick, divider }) {
 // ── "Where it comes from" — ranked composition of the current view by
 //    bank, account/card or owner (ADIB feedback: ranking of spend by owner
 //    and card). Tapping a row focuses the whole screen on it.
-function SourceRankRow({ T, icon, title, caption, amount, pct, color, onClick, divider }) {
+function SourceRankRow({ T, icon, title, caption, amount, pct, color, onClick, divider, selIndex }) {
   return (
     <button className="pressable-row" onClick={onClick} style={{
-      display: 'flex', alignItems: 'center', gap: 13, width: '100%', padding: '11px 0',
-      border: 'none', background: 'transparent', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left', position: 'relative',
+      display: 'flex', alignItems: 'center', gap: 13, width: 'calc(100% + 16px)', padding: '11px 8px', margin: '0 -8px', boxSizing: 'border-box',
+      border: 'none', background: selIndex ? hexA(T.accent, T.dark ? 0.16 : 0.07) : 'transparent', borderRadius: 13,
+      cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left', position: 'relative', transition: 'background .15s',
     }}>
       {icon}
+      {selIndex && (
+        <span style={{ position: 'absolute', left: 38, top: 8, width: 17, height: 17, borderRadius: 999, background: T.accent, color: '#fff', fontSize: 10.5, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 0 0 2px ' + T.bg }}>{selIndex}</span>
+      )}
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 }}>
           <span style={{ fontSize: 14.5, fontWeight: 600, color: T.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -2759,27 +2775,29 @@ function SourceRankRow({ T, icon, title, caption, amount, pct, color, onClick, d
   );
 }
 
-function SourceRankCard({ T, period, of }) {
+function SourceRankCard({ T, period, of, actions }) {
   const [dim, setDim] = React.useState('bank');
+  const [sel, setSel] = React.useState([]);
   const D0 = window.EXP_DATA;
   const { rows, total } = D0.rankBy(period, dim);
   if (!rows.length) return null;
   const OWNER_COLORS = { you: T.accent, wife: '#8C704B' };
 
+  const pickDim = (d) => { setDim(d); setSel([]); };
+  const toggle = (key) => {
+    const next = sel.includes(key) ? sel.filter((k) => k !== key) : [...sel, key];
+    if (next.length === 2) { setSel([]); actions.openCompare(dim, next[0], next[1]); }
+    else setSel(next);
+  };
+
   const rowProps = (r) => {
     if (dim === 'bank') {
       const b = D0.bankById(r.key);
-      return { icon: <BankAvatar bank={b} size={38} radius={11} />, title: b.name,
-        color: b.color, onClick: () => of.setFilter(r.key) };
+      return { icon: <BankAvatar bank={b} size={38} radius={11} />, title: b.name, color: b.color };
     }
     if (dim === 'product') {
       const p = D0.productById(r.key); const b = D0.bankById(p.bank);
-      return {
-        icon: <BankAvatar bank={b} size={38} radius={11} />,
-        title: (p.nickname || p.label) + ' ' + p.mask,
-        color: b.color,
-        onClick: () => { of.setProduct(r.key); of.setCardType('all'); },
-      };
+      return { icon: <BankAvatar bank={b} size={38} radius={11} />, title: (p.nickname || p.label) + ' ' + p.mask, color: b.color };
     }
     const o = D0.ownerById(r.key);
     const col = OWNER_COLORS[r.key] || T.accent;
@@ -2790,7 +2808,6 @@ function SourceRankCard({ T, period, of }) {
         </span>
       ),
       title: o.name, caption: `${r.count} transactions`, color: col,
-      onClick: () => of.setOwner(r.key),
     };
   };
 
@@ -2798,15 +2815,21 @@ function SourceRankCard({ T, period, of }) {
     <div style={{ marginTop: 22 }}>
       <Card T={T} pad={18}>
         <div style={{ margin: '2px 0 8px' }}>
-          <div style={{ fontSize: 13, fontWeight: 640, color: T.ink, letterSpacing: '-0.01em' }}>Where it comes from</div>
+          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 }}>
+            <span style={{ fontSize: 13, fontWeight: 640, color: T.ink, letterSpacing: '-0.01em' }}>Where it comes from</span>
+            <span style={{ fontSize: 11.5, fontWeight: 560, color: sel.length ? T.accent : T.muted }}>
+              {sel.length ? 'Pick one more to compare' : 'Pick two to compare'}
+            </span>
+          </div>
           <div style={{ marginTop: 10 }}>
-            <SortSwitch T={T} value={dim} onChange={setDim} options={[['bank', 'Banks'], ['product', 'Accounts & cards'], ['owner', 'Owners']]} />
+            <SortSwitch T={T} value={dim} onChange={pickDim} options={[['bank', 'Banks'], ['product', 'Accounts & cards'], ['owner', 'Owners']]} />
           </div>
         </div>
         {rows.map((r, i, a) => {
           const p = rowProps(r);
           const pct = total ? Math.round((r.total / total) * 100) : 0;
-          return <SourceRankRow key={r.key} T={T} {...p} amount={r.total} pct={pct} divider={i < a.length - 1} />;
+          return <SourceRankRow key={r.key} T={T} {...p} amount={r.total} pct={pct} divider={i < a.length - 1}
+            selIndex={sel.indexOf(r.key) >= 0 ? sel.indexOf(r.key) + 1 : null} onClick={() => toggle(r.key)} />;
         })}
       </Card>
     </div>
@@ -2960,10 +2983,18 @@ function Spends({ T, showLogos, period, actions, enriched, onToggle, of }) {
           <SpendRing data={CATEGORY_SPEND} total={TOTAL} prevTotal={prevTotal}
             dark={T.dark} ink={T.ink} muted={T.muted} surface={T.surface}
             onSlice={(id) => (id === '__other' ? actions.openBreakdown() : actions.openCategory(id))} />
+        </Card>
+      </div>
+      )}
 
-          <div style={{ height: 1, background: T.faint, margin: '18px -20px 8px' }} />
+      {/* Ranked composition right under the total — the Open Finance story:
+          which bank, account and owner the spend comes from. */}
+      {TOTAL > 0 && <SourceRankCard T={T} period={period} of={of} actions={actions} />}
 
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '6px 0 2px' }}>
+      {TOTAL > 0 && (
+      <div style={{ marginTop: 22 }}>
+        <Card T={T} pad={18}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '2px 0 2px' }}>
             <span style={{ fontSize: 13, fontWeight: 640, color: T.ink, letterSpacing: '-0.01em' }}>Top categories</span>
             <button className="pressable" onClick={actions.openBreakdown} style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 600, color: T.accent }}>See all</button>
           </div>
@@ -2973,9 +3004,6 @@ function Spends({ T, showLogos, period, actions, enriched, onToggle, of }) {
         </Card>
       </div>
       )}
-
-      {/* Ranked composition — by bank, account/card, owner (ADIB feedback) */}
-      {TOTAL > 0 && <SourceRankCard T={T} period={period} of={of} />}
 
       {/* Two entry points: category (+brand) breakdown, and the historical view */}
       <div style={{ marginTop: 22 }}>
@@ -3264,6 +3292,211 @@ function TrendsPage({ T, showLogos, period, actions, mode, initialCatId, onClose
 }
 
 // ── All transactions — presented as a sheet (TransactionListView) ───
+// ── Compare — two banks, accounts or owners head-to-head (ADIB feedback:
+//    usage at bank A vs bank B, ranking that drills into categories/brands).
+function ComparePage({ T, showLogos, period, actions, dim: dim0, a: a0, b: b0, onClose }) {
+  const D0 = D();
+  const [dim, setDim] = React.useState(dim0 || 'bank');
+  const [keys, setKeys] = React.useState([a0, b0]);
+  const [picker, setPicker] = React.useState(null); // null | 0 | 1
+  const SIDE_COLORS = ['#009EE3', '#8C704B'];
+
+  // Every entity of the current dimension, for the slot pickers.
+  const entities = React.useMemo(() => {
+    if (dim === 'bank') return D0.totalsByBank(period).map((x) => ({ key: x.bank.id, name: x.bank.name, short: x.bank.abbr || x.bank.name, total: x.total, icon: <BankAvatar bank={x.bank} size={34} radius={10} /> }));
+    if (dim === 'product') return D0.totalsByProduct(period).map((x) => ({ key: x.product.id, name: (x.product.nickname || x.product.label) + ' ' + x.product.mask, short: x.product.nickname || (D0.bankById(x.product.bank).abbr + ' ' + x.product.mask), total: x.total, icon: <BankAvatar bank={D0.bankById(x.product.bank)} size={34} radius={10} /> }));
+    return D0.totalsByOwner(period).map((x) => ({ key: x.owner.id, name: x.owner.name, short: x.owner.name, total: x.total, icon: (
+      <span style={{ width: 34, height: 34, borderRadius: 999, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: hexA(T.accent, T.dark ? 0.26 : 0.13), color: T.dark ? '#fff' : T.accent, fontSize: 14, fontWeight: 700 }}>{x.owner.name.charAt(0)}</span>
+    ) }));
+  }, [dim, period]);
+
+  const pickDim = (d) => {
+    setDim(d);
+    const list = d === 'bank' ? D0.totalsByBank(period) : d === 'product' ? D0.totalsByProduct(period) : D0.totalsByOwner(period);
+    const ks = list.map((x) => (d === 'bank' ? x.bank.id : d === 'product' ? x.product.id : x.owner.id));
+    setKeys([ks[0], ks[1] || ks[0]]);
+  };
+
+  const scopeFor = (key) => (dim === 'bank' ? { bank: key } : dim === 'product' ? { product: key } : { owner: key });
+  const entFor = (key) => entities.find((e) => e.key === key) || entities[0];
+  const sides = keys.map((k) => ({ ent: entFor(k), data: D0.compareSide(period, scopeFor(k)) }));
+  const combined = sides[0].data.total + sides[1].data.total;
+
+  // Union of categories, ordered by combined spend.
+  const catMap = new Map();
+  sides.forEach(({ data }, si) => data.cats.forEach((c) => {
+    const e = catMap.get(c.id) || { cat: c, vals: [0, 0] };
+    e.vals[si] = c.total; if (!catMap.has(c.id)) catMap.set(c.id, e);
+  }));
+  const catRows = [...catMap.values()].sort((x, y) => (y.vals[0] + y.vals[1]) - (x.vals[0] + x.vals[1])).slice(0, 8);
+  const maxCat = Math.max(1, ...catRows.map((r) => Math.max(r.vals[0], r.vals[1])));
+  const maxMonth = Math.max(1, ...sides[0].data.monthly.vals, ...sides[1].data.monthly.vals);
+
+  const slotChip = (si) => {
+    const { ent } = sides[si];
+    return (
+      <button className="pressable" onClick={() => setPicker(si)} style={{
+        flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 9, padding: '10px 12px', borderRadius: 14,
+        border: `1.5px solid ${hexA(SIDE_COLORS[si], 0.55)}`, background: hexA(SIDE_COLORS[si], T.dark ? 0.14 : 0.06),
+        cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left',
+      }}>
+        {ent.icon}
+        <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 640, color: T.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{ent.short || ent.name}</span>
+        <UIIcon name="chevD" size={14} stroke={T.muted} />
+      </button>
+    );
+  };
+
+  return (
+    <div className="page-in" style={{ position: 'absolute', inset: 0, zIndex: 238, background: T.bg, display: 'flex', flexDirection: 'column' }}>
+      <div style={{ padding: '58px 18px 0', flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, minHeight: 40 }}>
+          <button className="pressable" onClick={onClose} aria-label="Back" style={{ width: 38, height: 38, borderRadius: 12, flexShrink: 0, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', background: T.surface, border: `1px solid ${T.line}`, color: T.ink, boxShadow: T.dark ? 'none' : T.cardShadow }}>
+            <UIIcon name="chevL" size={20} />
+          </button>
+          <div style={{ flex: 1, fontSize: 25, fontWeight: 700, letterSpacing: '-0.025em', color: T.ink }}>Compare</div>
+        </div>
+        <div style={{ marginTop: 12 }}>
+          <SortSwitch T={T} value={dim} onChange={pickDim} options={[['bank', 'Banks'], ['product', 'Accounts & cards'], ['owner', 'Owners']]} />
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12 }}>
+          {slotChip(0)}
+          <span style={{ fontSize: 11.5, fontWeight: 700, color: T.muted, flexShrink: 0 }}>VS</span>
+          {slotChip(1)}
+        </div>
+      </div>
+
+      <div className="exp-screens" style={{ flex: 1, overflowY: 'auto', padding: '14px 18px 30px' }}>
+        {/* Head-to-head totals + one shared proportion bar */}
+        <Card T={T} pad={18}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+            {sides.map(({ ent, data }, si) => {
+              const delta = data.prevTotal ? Math.round(((data.total - data.prevTotal) / data.prevTotal) * 100) : null;
+              return (
+                <div key={si} style={{ minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                    <span style={{ width: 8, height: 8, borderRadius: 999, background: SIDE_COLORS[si], flexShrink: 0 }} />
+                    <span style={{ fontSize: 12, fontWeight: 620, color: T.muted, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{ent.name}</span>
+                  </div>
+                  <div style={{ fontSize: 22, fontWeight: 720, color: T.ink, marginTop: 6, letterSpacing: '-0.025em', fontVariantNumeric: 'tabular-nums' }}>
+                    <span style={{ display: 'inline-flex', color: T.muted, marginRight: 3 }}><Dirham size={13} color="currentColor" /></span>{fmtAED(data.total)}
+                  </div>
+                  <div style={{ fontSize: 11.5, color: T.muted, marginTop: 3 }}>
+                    {combined ? Math.round((data.total / combined) * 100) : 0}% of the pair · {data.count} txns{delta != null ? ` · ${delta >= 0 ? '↑' : '↓'}${Math.abs(delta)}%` : ''}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ display: 'flex', height: 7, borderRadius: 999, overflow: 'hidden', marginTop: 14, background: T.faint }}>
+            <div style={{ width: `${combined ? (sides[0].data.total / combined) * 100 : 50}%`, background: SIDE_COLORS[0] }} />
+            <div style={{ flex: 1, background: SIDE_COLORS[1] }} />
+          </div>
+        </Card>
+
+        {/* Category-by-category — taps through to Category trends */}
+        <SectionTitle T={T}>By category</SectionTitle>
+        <Card T={T} pad="4px 18px">
+          {catRows.map(({ cat, vals }, i, arr) => (
+            <button key={cat.id} className="pressable-row" onClick={() => actions.openCategory(cat.id)} style={{
+              display: 'flex', alignItems: 'center', gap: 12, width: '100%', padding: '11px 0', position: 'relative',
+              border: 'none', background: 'transparent', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left',
+            }}>
+              <CategoryMark glyph={cat.glyph} color={cat.color} dark={T.dark} size={34} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
+                  <span style={{ fontSize: 14, fontWeight: 600, color: T.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{cat.name}</span>
+                  <span style={{ fontSize: 12.5, fontWeight: 620, fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>
+                    <span style={{ color: SIDE_COLORS[0] }}>{fmtAED(vals[0])}</span>
+                    <span style={{ color: T.muted, fontWeight: 500 }}> vs </span>
+                    <span style={{ color: SIDE_COLORS[1] }}>{fmtAED(vals[1])}</span>
+                  </span>
+                </div>
+                <div style={{ display: 'grid', gap: 3, marginTop: 7 }}>
+                  {[0, 1].map((si) => (
+                    <div key={si} style={{ height: 4, borderRadius: 999, background: hexA(SIDE_COLORS[si], T.dark ? 0.2 : 0.12), overflow: 'hidden' }}>
+                      <div style={{ height: '100%', width: `${Math.round((vals[si] / maxCat) * 100)}%`, background: SIDE_COLORS[si], borderRadius: 999 }} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+              {i < arr.length - 1 && <div style={{ position: 'absolute', left: 46, right: 0, bottom: 0, height: 1, background: T.faint }} />}
+            </button>
+          ))}
+        </Card>
+
+        {/* Top brands each side */}
+        <SectionTitle T={T}>Top brands</SectionTitle>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+          {sides.map(({ ent, data }, si) => (
+            <Card key={si} T={T} pad={14}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                <span style={{ width: 7, height: 7, borderRadius: 999, background: SIDE_COLORS[si], flexShrink: 0 }} />
+                <span style={{ fontSize: 11.5, fontWeight: 640, color: T.muted, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{ent.name}</span>
+              </div>
+              {data.brands.length === 0 && <div style={{ fontSize: 12, color: T.muted, padding: '8px 0' }}>No spend</div>}
+              {data.brands.map((b) => (
+                <div key={b.name} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0' }}>
+                  <MerchantMark name={b.name} glyph={b.glyph} catColor={b.catColor} showLogos={showLogos} dark={T.dark} size={24} radius={7} />
+                  <span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 580, color: T.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{b.name}</span>
+                  <span style={{ fontSize: 11.5, fontWeight: 600, color: T.muted, fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>{fmtAED(b.total)}</span>
+                </div>
+              ))}
+            </Card>
+          ))}
+        </div>
+
+        {/* Month-by-month, both series */}
+        <SectionTitle T={T}>Last 12 months</SectionTitle>
+        <Card T={T} pad={18}>
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, height: 110 }}>
+            {sides[0].data.monthly.vals.map((vA, m) => {
+              const vB = sides[1].data.monthly.vals[m];
+              return (
+                <div key={m} style={{ flex: 1, display: 'flex', alignItems: 'flex-end', gap: 2, height: '100%' }}>
+                  <div style={{ flex: 1, borderRadius: 3, background: SIDE_COLORS[0], height: `${Math.max(2, (vA / maxMonth) * 100)}%` }} />
+                  <div style={{ flex: 1, borderRadius: 3, background: SIDE_COLORS[1], height: `${Math.max(2, (vB / maxMonth) * 100)}%` }} />
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
+            {sides[0].data.monthly.labels.map((l, m) => (
+              <div key={m} style={{ flex: 1, textAlign: 'center', fontSize: 8.5, fontWeight: 600, color: T.muted }}>{m % 2 === 0 ? l : ''}</div>
+            ))}
+          </div>
+        </Card>
+      </div>
+
+      {/* Slot picker */}
+      <Sheet T={T} open={picker != null} onClose={() => setPicker(null)} title={picker === 0 ? 'Compare — first pick' : 'Compare — second pick'} z={430}>
+        <Card T={T} pad="2px 16px">
+          {entities.map((e, i, a) => {
+            const taken = picker != null && e.key === keys[1 - picker];
+            const active = picker != null && e.key === keys[picker];
+            return (
+              <button key={e.key} disabled={taken} className={taken ? undefined : 'pressable-row'}
+                onClick={() => { setKeys((ks) => { const n = [...ks]; n[picker] = e.key; return n; }); setPicker(null); }}
+                style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', padding: '11px 0', position: 'relative',
+                  border: 'none', background: 'transparent', cursor: taken ? 'default' : 'pointer', fontFamily: 'inherit', textAlign: 'left', opacity: taken ? 0.4 : 1 }}>
+                {e.icon}
+                <span style={{ flex: 1, minWidth: 0, fontSize: 14.5, fontWeight: active ? 660 : 580, color: T.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{e.name}</span>
+                {active && (
+                  <span style={{ width: 20, height: 20, borderRadius: 999, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: T.accent, color: '#fff' }}>
+                    <CheckIcon size={11} stroke="#fff" />
+                  </span>
+                )}
+                <span style={{ fontSize: 13, fontWeight: 600, color: T.muted, fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}><Dirham size={11} color="currentColor" style={{ marginRight: 3 }} />{fmtAED(e.total)}</span>
+                {i < a.length - 1 && <div style={{ position: 'absolute', left: 46, right: 0, bottom: 0, height: 1, background: T.faint }} />}
+              </button>
+            );
+          })}
+        </Card>
+      </Sheet>
+    </div>
+  );
+}
+
 function AllTxnsSheet({ T, open, onClose, showLogos, period, onTxn, z }) {
   const { TRANSACTIONS, TOTAL, TXN_COUNT } = D().forPeriod(period);
   const [q, setQ] = React.useState('');
@@ -3415,7 +3648,7 @@ function AccountsSheet({ T, open, onClose, linked, z = 380 }) {
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: b.stale ? '#B07D18' : T.muted, marginTop: 3 }}>
                 <span style={{ width: 6, height: 6, borderRadius: 999, background: b.stale ? '#E0A63A' : '#34B27B', flexShrink: 0 }} />
-                {b.mask} · {b.fresh}
+                {OFD().PRODUCTS.filter((p) => p.bank === b.id).map((p) => p.mask).join(' · ') || b.mask} · {b.fresh}
               </div>
             </div>
             {i < a.length - 1 && <div style={{ position: 'absolute', left: 55, right: 0, bottom: 0, height: 1, background: T.faint }} />}
@@ -3653,15 +3886,19 @@ function CardTypeSheet({ T, open, onClose, value, onPick, product, onProduct, ow
           onClick: () => { onPick('all'); onProduct('all'); onClose(); } })}
       </Card>
 
-      <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: T.muted, margin: '16px 4px 8px' }}>By card type</div>
-      <Card T={T} pad="2px 16px">
-        {D0.CARD_TYPES.filter((t) => t.id !== 'all').map((t, i, a) => {
-          const amt = typeTotals[t.id] || 0;
-          return row({ key: t.id, icon: typeIcon, title: t.label, amt, disabled: amt <= 0,
-            active: value === t.id && product === 'all', divider: i < a.length - 1,
-            onClick: () => { onPick(t.id); onProduct('all'); onClose(); } });
-        })}
-      </Card>
+      {[['account', 'Accounts'], ['card', 'Cards']].map(([kind, heading]) => (
+        <div key={kind}>
+          <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: T.muted, margin: '16px 4px 8px' }}>{heading}</div>
+          <Card T={T} pad="2px 16px">
+            {D0.CARD_TYPES.filter((t) => t.kind === kind).map((t, i, a) => {
+              const amt = typeTotals[t.id] || 0;
+              return row({ key: t.id, icon: typeIcon, title: t.label, amt, disabled: amt <= 0,
+                active: value === t.id && product === 'all', divider: i < a.length - 1,
+                onClick: () => { onPick(t.id); onProduct('all'); onClose(); } });
+            })}
+          </Card>
+        </div>
+      ))}
 
       <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: T.muted, margin: '16px 4px 8px' }}>By account & card</div>
       {banks.map((b) => {
@@ -3734,6 +3971,7 @@ function ExpensesApp() {
   const [enriched, setEnriched] = React.useState(true); // With Lune (true) vs raw feed
   const [breakdownOpen, setBreakdownOpen] = React.useState(false);
   const [trends, setTrends] = React.useState(null); // null | { mode, catId }
+  const [compare, setCompare] = React.useState(null); // null | { dim, a, b }
   const [allTxnsOpen, setAllTxnsOpen] = React.useState(false);
 
   const [list, setList] = React.useState({ title: '', subtitle: '', txns: [] });
@@ -3798,6 +4036,7 @@ function ExpensesApp() {
     openTxnList(payload) { setList(payload); setListOpen(true); },
     openTxn(tx) { setTxn(tx); setTxnOpen(true); },
     openFeedback(tx) { setFbTxn(tx); setFbOpen(true); },
+    openCompare(dim, a, b) { setCompare({ dim, a, b }); },
   }), [period]);
 
   // Scale the 390-wide device to fit the screen — narrow phones AND desktop
@@ -3829,6 +4068,7 @@ function ExpensesApp() {
             product={product} onProduct={setProductState} owner={owner} onOwner={setOwnerState} period={period} z={370} />
           <BreakdownSheet T={T} open={breakdownOpen} onClose={() => setBreakdownOpen(false)} showLogos={t.showLogos} period={period} actions={actions} z={210} />
           <AllTxnsSheet T={T} open={allTxnsOpen} onClose={() => setAllTxnsOpen(false)} showLogos={t.showLogos} period={period} onTxn={(tx) => actions.openTxn(tx)} z={230} />
+          {compare && <ComparePage key={compare.dim + '-' + compare.a + '-' + compare.b} T={T} showLogos={t.showLogos} period={period} actions={actions} dim={compare.dim} a={compare.a} b={compare.b} onClose={() => setCompare(null)} />}
           {trends && <TrendsPage key={trends.mode + '-' + trends.catId} T={T} showLogos={t.showLogos} period={period} actions={actions} mode={trends.mode} initialCatId={trends.catId} onClose={() => setTrends(null)} />}
           <TxnListSheet T={T} open={listOpen} onClose={() => setListOpen(false)} title={list.title} subtitle={list.subtitle} txns={list.txns} total={list.total} showLogos={t.showLogos} onTxn={(tx) => actions.openTxn(tx)} z={300} />
           <TxnDetailSheet T={T} txn={txn} open={txnOpen} onClose={() => setTxnOpen(false)} showLogos={t.showLogos} onImprove={(tx) => { setTxnOpen(false); actions.openFeedback(tx); }} />
