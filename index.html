@@ -329,30 +329,23 @@
   }
   // Spend per card type across the LINKED banks (ignores the active filters)
   // for the current period — powers the picker's per-type amounts.
-  function totalsByType(period) {
-    const n = monthsForPeriod(period);
+  // Optional ownerId scopes the totals to one owner's products.
+  function totalsByType(period, ownerId) {
+    const sums = sumBuckets(period, (bm) => bm.type, ownerId);
     const out = { all: 0 };
-    CATEGORIES.forEach((c) => {
-      LINKED.forEach((bid) => {
-        ((BANK_BRAND_MONTHLY[bid] || {})[c.id] || []).forEach((bm) => {
-          let t = 0;
-          for (let m = NUM_MONTHS - n; m < NUM_MONTHS; m++) t += bm.months[m].amount;
-          out[bm.type] = r2((out[bm.type] || 0) + t);
-          out.all = r2(out.all + t);
-        });
-      });
-    });
+    Object.keys(sums).forEach((k) => { out[k] = sums[k].total; out.all = r2(out.all + sums[k].total); });
     return out;
   }
   // Spend per product / owner / bank across the LINKED banks for a period —
   // powers pickers, rankings and the Compare view. Ignores the active view
   // filters (same contract as totalsByType).
-  function sumBuckets(period, keyFn) {
+  function sumBuckets(period, keyFn, ownerId) {
     const n = monthsForPeriod(period);
     const out = {};
     CATEGORIES.forEach((c) => {
       LINKED.forEach((bid) => {
         ((BANK_BRAND_MONTHLY[bid] || {})[c.id] || []).forEach((bm) => {
+          if (ownerId && ownerId !== 'all' && PRODUCT_BY_ID[bm.product].owner !== ownerId) return;
           let t = 0, k = 0;
           for (let m = NUM_MONTHS - n; m < NUM_MONTHS; m++) { t += bm.months[m].amount; k += bm.months[m].count; }
           if (!t) return;
@@ -2833,7 +2826,7 @@ function Spends({ T, showLogos, period, actions, enriched, onToggle, of }) {
       <AppHeader T={T} title="Spends" right={accountsBtn} />
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 14 }}>
         <PeriodPill T={T} period={period} onClick={actions.openPeriod} inline />
-        <CardTypePill T={T} value={of.cardType} onClick={of.openCardType} />
+        <CardTypePill T={T} value={of.cardType} product={of.product} owner={of.owner} onClick={of.openCardType} />
       </div>
 
       <BankChips T={T} linked={of.linked} filter={of.filter} onFilter={of.setFilter} />
@@ -2852,8 +2845,8 @@ function Spends({ T, showLogos, period, actions, enriched, onToggle, of }) {
               <CardTypeIcon size={20} stroke="currentColor" />
             </span>
             <div style={{ fontSize: 15.5, fontWeight: 660, color: T.ink, marginTop: 12 }}>No spending here</div>
-            <div style={{ fontSize: 13, color: T.muted, marginTop: 5, lineHeight: 1.5 }}>Nothing was paid with this account or card type in the selected period and banks.</div>
-            <button className="pressable" onClick={() => of.setCardType('all')} style={{ marginTop: 14, padding: '10px 18px', borderRadius: 999, border: 'none', cursor: 'pointer', fontFamily: 'inherit', background: T.accent, color: '#fff', fontSize: 13, fontWeight: 620 }}>Show all accounts &amp; cards</button>
+            <div style={{ fontSize: 13, color: T.muted, marginTop: 5, lineHeight: 1.5 }}>Nothing was paid with this selection in the chosen period and banks.</div>
+            <button className="pressable" onClick={of.resetScope} style={{ marginTop: 14, padding: '10px 18px', borderRadius: 999, border: 'none', cursor: 'pointer', fontFamily: 'inherit', background: T.accent, color: '#fff', fontSize: 13, fontWeight: 620 }}>Show all accounts &amp; cards</button>
           </Card>
         </div>
       )}
@@ -3465,60 +3458,129 @@ function CardTypeIcon({ size = 16, stroke = 'currentColor', sw = 1.8 }) {
   );
 }
 
-function CardTypePill({ T, value, onClick }) {
-  const types = OFD().CARD_TYPES;
-  const t = types.find((x) => x.id === value) || types[0];
+function CardTypePill({ T, value, product = 'all', owner = 'all', onClick }) {
+  const D0 = OFD();
+  const parts = [];
+  if (owner !== 'all') { const o = D0.ownerById(owner); parts.push(o ? o.short : owner); }
+  if (product !== 'all') { const p = D0.productById(product); if (p) parts.push(p.nickname || p.label); }
+  else if (value !== 'all') { const t = D0.CARD_TYPES.find((x) => x.id === value); if (t) parts.push(t.short); }
+  const active = parts.length > 0;
   return (
     <button onClick={onClick} style={{
       display: 'inline-flex', alignItems: 'center', gap: 7, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
-      background: T.surface, border: `1px solid ${value !== 'all' ? hexA(T.accent, 0.55) : T.line}`, borderRadius: 999,
+      background: T.surface, border: `1px solid ${active ? hexA(T.accent, 0.55) : T.line}`, borderRadius: 999,
       padding: '8px 13px', color: T.ink, fontFamily: 'inherit',
       fontSize: 13.5, fontWeight: 580, boxShadow: T.dark ? 'none' : T.cardShadow,
     }}>
       <span style={{ color: T.accent, display: 'flex' }}><CardTypeIcon size={16} stroke={T.accent} /></span>
-      {t.short}
+      {active ? parts.join(' · ') : 'All cards'}
       <UIIcon name="chevD" size={15} stroke={T.muted} />
     </button>
   );
 }
 
-function CardTypeSheet({ T, open, onClose, value, onPick, period, z = 370 }) {
+// Accounts & cards — the segregation surface. An owner lens (All · Mine ·
+// Wife), card-type rows, then every account and card grouped by bank with
+// its own spend. Picking a product clears the type filter and vice versa.
+function CardTypeSheet({ T, open, onClose, value, onPick, product, onProduct, owner, onOwner, period, z = 370 }) {
   const D0 = OFD();
-  const totals = open ? D0.totalsByType(period) : {};
+  const typeTotals = open ? D0.totalsByType(period, owner) : {};
+  const prodTotals = open ? D0.totalsByProduct(period) : [];
+  const prodAmt = {}; prodTotals.forEach((x) => { prodAmt[x.product.id] = x.total; });
+  const banks = D0.BANKS.filter((b) => D0.linkedBanks().includes(b.id));
+  const allActive = value === 'all' && product === 'all';
+
+  const lens = (
+    <div style={{ display: 'flex', gap: 4, padding: 4, borderRadius: 12, background: T.dark ? 'rgba(255,255,255,0.07)' : 'rgba(7,3,18,0.05)', marginBottom: 14 }}>
+      {[{ id: 'all', label: 'Everyone' }, ...D0.OWNERS.map((o) => ({ id: o.id, label: o.short }))].map((o) => {
+        const active = owner === o.id;
+        return (
+          <button key={o.id} className="pressable" onClick={() => onOwner(o.id)} style={{
+            flex: 1, padding: '8px 0', borderRadius: 9, border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+            fontSize: 13, fontWeight: active ? 660 : 560, color: active ? T.ink : T.muted,
+            background: active ? T.bg : 'transparent', boxShadow: active ? '0 1px 4px rgba(0,0,0,0.12)' : 'none',
+            transition: 'background .15s, color .15s',
+          }}>{o.label}</button>
+        );
+      })}
+    </div>
+  );
+
+  const row = ({ key, icon, title, caption, amt, active, disabled, onClick, divider }) => (
+    <button key={key} disabled={disabled} className={disabled ? undefined : 'pressable-row'}
+      onClick={onClick} style={{
+        display: 'flex', alignItems: 'center', gap: 12, width: '100%', padding: '11px 0', position: 'relative',
+        border: 'none', background: 'transparent', cursor: disabled ? 'default' : 'pointer',
+        fontFamily: 'inherit', textAlign: 'left', opacity: disabled ? 0.45 : 1,
+      }}>
+      {icon}
+      <span style={{ flex: 1, minWidth: 0 }}>
+        <span style={{ display: 'block', fontSize: 14.5, fontWeight: active ? 660 : 580, color: T.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{title}</span>
+        {caption && <span style={{ display: 'block', fontSize: 11.5, color: T.muted, marginTop: 1 }}>{caption}</span>}
+      </span>
+      {active && (
+        <span style={{ width: 20, height: 20, borderRadius: 999, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: T.accent, color: '#fff' }}>
+          <CheckIcon size={11} stroke="#fff" />
+        </span>
+      )}
+      <span style={{ fontSize: 13.5, fontWeight: 600, color: active ? T.ink : T.muted, fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>
+        <Dirham size={11} color="currentColor" style={{ marginRight: 3 }} />{fmtAED(amt)}
+      </span>
+      {divider && <div style={{ position: 'absolute', left: 48, right: 0, bottom: 0, height: 1, background: T.faint }} />}
+    </button>
+  );
+
+  const typeIcon = (
+    <span style={{ width: 36, height: 36, borderRadius: 10, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: hexA(T.accent, T.dark ? 0.18 : 0.1), color: T.accent }}>
+      <CardTypeIcon size={17} stroke="currentColor" />
+    </span>
+  );
+
   return (
     <Sheet T={T} open={open} onClose={onClose} title="Accounts & cards" z={z}>
-      <div style={{ fontSize: 13, color: T.muted, lineHeight: 1.5, margin: '0 2px 14px' }}>
-        Filter your spending by the account or card it was paid with — across every linked bank.
+      <div style={{ fontSize: 13, color: T.muted, lineHeight: 1.5, margin: '0 2px 12px' }}>
+        Split your spending by who spent it, a card type, or a single account — across every linked bank.
       </div>
+      {lens}
+
       <Card T={T} pad="2px 16px">
-        {D0.CARD_TYPES.map((t, i, a) => {
-          const amt = totals[t.id] || 0;
-          const disabled = t.id !== 'all' && amt <= 0;
-          const active = value === t.id;
-          return (
-            <button key={t.id} disabled={disabled} className={disabled ? undefined : 'pressable-row'}
-              onClick={() => { onPick(t.id); onClose(); }} style={{
-                display: 'flex', alignItems: 'center', gap: 12, width: '100%', padding: '13px 0', position: 'relative',
-                border: 'none', background: 'transparent', cursor: disabled ? 'default' : 'pointer',
-                fontFamily: 'inherit', textAlign: 'left', opacity: disabled ? 0.45 : 1,
-              }}>
-              <span style={{ width: 36, height: 36, borderRadius: 10, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: hexA(T.accent, T.dark ? 0.18 : 0.1), color: T.accent }}>
-                <CardTypeIcon size={17} stroke="currentColor" />
-              </span>
-              <span style={{ flex: 1, minWidth: 0, fontSize: 15, fontWeight: active ? 660 : 580, color: T.ink }}>{t.label}</span>
-              {active && (
-                <span style={{ width: 20, height: 20, borderRadius: 999, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: T.accent, color: '#fff' }}>
-                  <CheckIcon size={11} stroke="#fff" />
-                </span>
-              )}
-              <span style={{ fontSize: 13.5, fontWeight: 600, color: active ? T.ink : T.muted, fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>
-                <Dirham size={11} color="currentColor" style={{ marginRight: 3 }} />{fmtAED(amt)}
-              </span>
-              {i < a.length - 1 && <div style={{ position: 'absolute', left: 48, right: 0, bottom: 0, height: 1, background: T.faint }} />}
-            </button>
-          );
+        {row({ key: 'all', icon: typeIcon, title: 'All accounts & cards', amt: typeTotals.all || 0, active: allActive,
+          onClick: () => { onPick('all'); onProduct('all'); onClose(); } })}
+      </Card>
+
+      <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: T.muted, margin: '16px 4px 8px' }}>By card type</div>
+      <Card T={T} pad="2px 16px">
+        {D0.CARD_TYPES.filter((t) => t.id !== 'all').map((t, i, a) => {
+          const amt = typeTotals[t.id] || 0;
+          return row({ key: t.id, icon: typeIcon, title: t.label, amt, disabled: amt <= 0,
+            active: value === t.id && product === 'all', divider: i < a.length - 1,
+            onClick: () => { onPick(t.id); onProduct('all'); onClose(); } });
         })}
       </Card>
+
+      <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: T.muted, margin: '16px 4px 8px' }}>By account & card</div>
+      {banks.map((b) => {
+        const prods = D0.PRODUCTS.filter((p) => p.bank === b.id && (owner === 'all' || p.owner === owner));
+        if (!prods.length) return null;
+        return (
+          <div key={b.id} style={{ marginBottom: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 4px 7px' }}>
+              <BankAvatar bank={b} size={20} radius={6} />
+              <span style={{ fontSize: 12.5, fontWeight: 640, color: T.ink }}>{b.name}</span>
+            </div>
+            <Card T={T} pad="2px 16px">
+              {prods.map((p, i, a) => {
+                const o = D0.ownerById(p.owner);
+                return row({ key: p.id, icon: typeIcon, title: (p.nickname || p.label) + ' ' + p.mask,
+                  caption: [p.nickname ? p.label : null, o && p.owner !== 'you' ? o.name : null].filter(Boolean).join(' · ') || null,
+                  amt: prodAmt[p.id] || 0, disabled: (prodAmt[p.id] || 0) <= 0,
+                  active: product === p.id, divider: i < a.length - 1,
+                  onClick: () => { onProduct(p.id); onPick('all'); onClose(); } });
+              })}
+            </Card>
+          </div>
+        );
+      })}
     </Sheet>
   );
 }
@@ -3584,15 +3646,22 @@ function ExpensesApp() {
   const [bankFilter, setBankFilter] = React.useState('all');
   const [accountsOpen, setAccountsOpen] = React.useState(false);
   const [cardType, setCardTypeState] = React.useState('all');
+  const [product, setProductState] = React.useState('all');
+  const [owner, setOwnerState] = React.useState('all');
   const [cardTypeOpen, setCardTypeOpen] = React.useState(false);
   const effFilter = bankFilter !== 'all' && !linked.includes(bankFilter) ? 'all' : bankFilter;
-  // Point every data function at the current bank set + card type BEFORE children render.
+  // Point every data function at the current bank set + filters BEFORE children render.
   window.EXP_DATA.setBanks(linked, effFilter === 'all' ? linked : [effFilter]);
   window.EXP_DATA.setCardType(cardType);
+  window.EXP_DATA.setProduct(product);
+  window.EXP_DATA.setOwner(owner);
 
   const of = {
     linked, filter: effFilter, setFilter: setBankFilter,
     cardType, setCardType: setCardTypeState, openCardType: () => setCardTypeOpen(true),
+    product, setProduct: setProductState,
+    owner, setOwner: setOwnerState,
+    resetScope: () => { setCardTypeState('all'); setProductState('all'); setOwnerState('all'); },
     openAccounts: () => setAccountsOpen(true),
   };
 
@@ -3651,7 +3720,8 @@ function ExpensesApp() {
           <AccountsSheet T={T} open={accountsOpen} onClose={() => setAccountsOpen(false)} linked={linked} z={380} />
           {/* BankPickerSheet / ConsentSheet / OFToast stay defined but unmounted:
               linking and consent live in ADIB's own app, not in this module. */}
-          <CardTypeSheet T={T} open={cardTypeOpen} onClose={() => setCardTypeOpen(false)} value={cardType} onPick={setCardTypeState} period={period} z={370} />
+          <CardTypeSheet T={T} open={cardTypeOpen} onClose={() => setCardTypeOpen(false)} value={cardType} onPick={setCardTypeState}
+            product={product} onProduct={setProductState} owner={owner} onOwner={setOwnerState} period={period} z={370} />
           <BreakdownSheet T={T} open={breakdownOpen} onClose={() => setBreakdownOpen(false)} showLogos={t.showLogos} period={period} actions={actions} z={210} />
           <AllTxnsSheet T={T} open={allTxnsOpen} onClose={() => setAllTxnsOpen(false)} showLogos={t.showLogos} period={period} onTxn={(tx) => actions.openTxn(tx)} z={230} />
           {trends && <TrendsPage key={trends.mode + '-' + trends.catId} T={T} showLogos={t.showLogos} period={period} actions={actions} mode={trends.mode} initialCatId={trends.catId} onClose={() => setTrends(null)} />}
