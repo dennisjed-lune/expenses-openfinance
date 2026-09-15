@@ -2878,9 +2878,9 @@ function SourceRankCard({ T, period, of, actions }) {
       <Card T={T} pad={18}>
         <div style={{ margin: '2px 0 8px' }}>
           <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 }}>
-            <span style={{ fontSize: 13, fontWeight: 640, color: T.ink, letterSpacing: '-0.01em' }}>Where it comes from</span>
+            <span style={{ fontSize: 13, fontWeight: 640, color: T.ink, letterSpacing: '-0.01em' }}>Compare spending</span>
             <span style={{ fontSize: 11.5, fontWeight: 560, color: sel.length ? T.accent : T.muted }}>
-              {sel.length ? 'Pick one more to compare' : 'Pick two to compare'}
+              {sel.length ? 'Pick one more' : 'Pick any two'}
             </span>
           </div>
           <div style={{ marginTop: 10 }}>
@@ -3967,7 +3967,7 @@ function CardTypeSheet({ T, open, onClose, value, onPick, product, onProduct, ow
   );
 
   return (
-    <Sheet T={T} open={open} onClose={onClose} title="Accounts & cards" z={z}>
+    <Sheet T={T} open={open} onClose={onClose} title="Accounts & cards" height="88%" z={z}>
       <div style={{ fontSize: 13, color: T.muted, lineHeight: 1.5, margin: '0 2px 12px' }}>
         Split your spending by who spent it, a card type, or a single account — across every linked bank.
       </div>
@@ -3990,7 +3990,9 @@ function CardTypeSheet({ T, open, onClose, value, onPick, product, onProduct, ow
 
       <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: T.muted, margin: '16px 4px 8px' }}>Your accounts & cards</div>
       {banks.map((b) => {
-        const prods = D0.PRODUCTS.filter((p) => p.bank === b.id && (owner === 'all' || p.owner === owner));
+        // Rows never disappear when the lens changes — the other owner's
+        // products dim instead, so nothing on screen moves.
+        const prods = D0.PRODUCTS.filter((p) => p.bank === b.id);
         if (!prods.length) return null;
         return (
           <div key={b.id} style={{ marginBottom: 12 }}>
@@ -4003,7 +4005,8 @@ function CardTypeSheet({ T, open, onClose, value, onPick, product, onProduct, ow
                 const o = D0.ownerById(p.owner);
                 return row({ key: p.id, icon: typeIcon, title: (p.nickname || p.label) + ' ' + p.mask,
                   caption: [p.nickname ? p.label : null, o && p.owner !== 'you' ? o.name : null].filter(Boolean).join(' · ') || null,
-                  amt: prodAmt[p.id] || 0, disabled: (prodAmt[p.id] || 0) <= 0,
+                  amt: prodAmt[p.id] || 0,
+                  disabled: (prodAmt[p.id] || 0) <= 0 || (owner !== 'all' && p.owner !== owner),
                   active: product === p.id, divider: i < a.length - 1,
                   onClick: () => { onProduct(p.id); onPick('all'); onClose(); } });
               })}
