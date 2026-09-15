@@ -557,6 +557,18 @@
   // Map a date range to a whole number of recent months to sum.
   function monthsForPeriod(period) { const d = (period && period.days) || 30; return d <= 45 ? 1 : d <= 135 ? 3 : d <= 270 ? 6 : 12; }
 
+  // The calendar months a selected range actually touches, as [start, end)
+  // indices into the 12-month series (Jul 2025 = 0 … Jun 2026 = 11) — the
+  // Compare charts show exactly these months, never a fixed window.
+  function monthRangeForPeriod(period) {
+    if (!period || !period.startMs) { const n = monthsForPeriod(period); return { start: NUM_MONTHS - n, end: NUM_MONTHS }; }
+    const idx = (ms) => { const d = new Date(ms); return (d.getFullYear() - 2025) * 12 + d.getMonth() - 6; };
+    let s = Math.max(0, Math.min(NUM_MONTHS - 1, idx(period.startMs)));
+    let e = Math.max(0, Math.min(NUM_MONTHS - 1, idx(period.endMs)));
+    if (e < s) { const t = s; s = e; e = t; }
+    return { start: s, end: e + 1 };
+  }
+
   function forPeriod(period) {
     const n = monthsForPeriod(period);
     const cur = aggregate(NUM_MONTHS - n, NUM_MONTHS);
@@ -572,7 +584,7 @@
     CATEGORIES, BRANDS, CATEGORY_SPEND, TOTAL, PREV, TRANSACTIONS, MERCHANT_CAT,
     MONTH_LABELS, MONTH_YEAR, NUM_MONTHS,
     txnsForCategory, txnsForBrand, txnsForCategoryMonth, categoryMonths, brandMonths, monthlyTotals,
-    forPeriod, monthsForPeriod, PERIOD_PRESETS, makePeriod, periodOfDays, ANCHOR_MS: +ANCHOR,
+    forPeriod, monthsForPeriod, monthRangeForPeriod, PERIOD_PRESETS, makePeriod, periodOfDays, ANCHOR_MS: +ANCHOR,
     CURRENT_PERIOD: periodOfDays(30),
     // Open Finance layer
     BANKS, MORE_BANKS, setBanks,
@@ -3330,7 +3342,14 @@ function ComparePage({ T, showLogos, period, actions, dim: dim0, a: a0, b: b0, o
   const [picker, setPicker] = React.useState(null); // null | 0 | 1
   const [openCat, setOpenCat] = React.useState(null); // inline-expanded category
   const SIDE_COLORS = ['#009EE3', '#8C704B'];
-  const nMonths = D0.monthsForPeriod(period);
+  // Months shown in the charts = the calendar months the selected range covers.
+  const { start: mStart, end: mEnd } = D0.monthRangeForPeriod(period);
+  const mCount = mEnd - mStart;
+  const rangeTitle = (() => {
+    const l = D0.MONTH_LABELS, y = D0.MONTH_YEAR;
+    if (mCount <= 1) return `${l[mStart]} ${y[mStart]}`;
+    return `${l[mStart]}${y[mStart] !== y[mEnd - 1] ? ' ' + y[mStart] : ''} – ${l[mEnd - 1]} ${y[mEnd - 1]}`;
+  })();
 
   // Every entity of the current dimension, for the slot pickers.
   const entities = React.useMemo(() => {
@@ -3432,11 +3451,10 @@ function ComparePage({ T, showLogos, period, actions, dim: dim0, a: a0, b: b0, o
           {catRows.map(({ cat, vals }, i, arr) => {
             const expanded = openCat === cat.id;
             let inline = null;
-            if (expanded && nMonths > 1) {
+            if (expanded && mCount > 1) {
               const mA = D0.scopedCategoryMonths(scopeFor(keys[0]), cat.id);
               const mB = D0.scopedCategoryMonths(scopeFor(keys[1]), cat.id);
-              const start = mA.vals.length - nMonths;
-              const vA = mA.vals.slice(start), vB = mB.vals.slice(start), lbl = mA.labels.slice(start);
+              const vA = mA.vals.slice(mStart, mEnd), vB = mB.vals.slice(mStart, mEnd), lbl = mA.labels.slice(mStart, mEnd);
               const mx = Math.max(1, ...vA, ...vB);
               inline = (
                 <div style={{ padding: '2px 0 12px 46px', animation: 'popIn .3s var(--ease-out) both' }}>
@@ -3450,7 +3468,7 @@ function ComparePage({ T, showLogos, period, actions, dim: dim0, a: a0, b: b0, o
                   </div>
                   <div style={{ display: 'flex', gap: 5, marginTop: 5 }}>
                     {lbl.map((l, m) => (
-                      <div key={m} style={{ flex: 1, textAlign: 'center', fontSize: 9, fontWeight: 600, color: T.muted }}>{nMonths > 6 && m % 2 === 1 ? '' : l}</div>
+                      <div key={m} style={{ flex: 1, textAlign: 'center', fontSize: 9, fontWeight: 600, color: T.muted }}>{mCount > 6 && m % 2 === 1 ? '' : l}</div>
                     ))}
                   </div>
                 </div>
@@ -3458,9 +3476,9 @@ function ComparePage({ T, showLogos, period, actions, dim: dim0, a: a0, b: b0, o
             }
             return (
               <div key={cat.id} style={{ position: 'relative' }}>
-                <button className="pressable-row" onClick={() => nMonths > 1 && setOpenCat(expanded ? null : cat.id)} style={{
+                <button className="pressable-row" onClick={() => mCount > 1 && setOpenCat(expanded ? null : cat.id)} style={{
                   display: 'flex', alignItems: 'center', gap: 12, width: '100%', padding: '11px 0',
-                  border: 'none', background: 'transparent', cursor: nMonths > 1 ? 'pointer' : 'default', fontFamily: 'inherit', textAlign: 'left',
+                  border: 'none', background: 'transparent', cursor: mCount > 1 ? 'pointer' : 'default', fontFamily: 'inherit', textAlign: 'left',
                 }}>
                   <CategoryMark glyph={cat.glyph} color={cat.color} dark={T.dark} size={34} />
                   <div style={{ flex: 1, minWidth: 0 }}>
@@ -3480,7 +3498,7 @@ function ComparePage({ T, showLogos, period, actions, dim: dim0, a: a0, b: b0, o
                       ))}
                     </div>
                   </div>
-                  {nMonths > 1 && <UIIcon name="chevD" size={14} stroke={T.muted} />}
+                  {mCount > 1 && <UIIcon name="chevD" size={14} stroke={T.muted} />}
                 </button>
                 {inline}
                 {i < arr.length - 1 && <div style={{ position: 'absolute', left: 46, right: 0, bottom: 0, height: 1, background: T.faint }} />}
@@ -3521,17 +3539,16 @@ function ComparePage({ T, showLogos, period, actions, dim: dim0, a: a0, b: b0, o
 
         {/* Month-by-month, both series — only the months inside the selected
             period (Dennis: never show 12 months when 1 was chosen). */}
-        {nMonths > 1 && (() => {
-          const start = sides[0].data.monthly.vals.length - nMonths;
-          const vAs = sides[0].data.monthly.vals.slice(start);
-          const vBs = sides[1].data.monthly.vals.slice(start);
-          const lbls = sides[0].data.monthly.labels.slice(start);
+        {mCount > 1 && (() => {
+          const vAs = sides[0].data.monthly.vals.slice(mStart, mEnd);
+          const vBs = sides[1].data.monthly.vals.slice(mStart, mEnd);
+          const lbls = sides[0].data.monthly.labels.slice(mStart, mEnd);
           const mx = Math.max(1, ...vAs, ...vBs);
           return (
             <div>
-              <SectionTitle T={T}>Last {nMonths} months</SectionTitle>
+              <SectionTitle T={T}>Month by month · {rangeTitle}</SectionTitle>
               <Card T={T} pad={18}>
-                <div style={{ display: 'flex', alignItems: 'flex-end', gap: nMonths > 6 ? 4 : 10, height: 110 }}>
+                <div style={{ display: 'flex', alignItems: 'flex-end', gap: mCount > 6 ? 4 : 10, height: 110 }}>
                   {vAs.map((vA, m) => (
                     <div key={m} style={{ flex: 1, display: 'flex', alignItems: 'flex-end', gap: 2, height: '100%' }}>
                       <div style={{ flex: 1, borderRadius: 3, background: SIDE_COLORS[0], height: `${Math.max(2, (vA / mx) * 100)}%` }} />
@@ -3539,9 +3556,9 @@ function ComparePage({ T, showLogos, period, actions, dim: dim0, a: a0, b: b0, o
                     </div>
                   ))}
                 </div>
-                <div style={{ display: 'flex', gap: nMonths > 6 ? 4 : 10, marginTop: 6 }}>
+                <div style={{ display: 'flex', gap: mCount > 6 ? 4 : 10, marginTop: 6 }}>
                   {lbls.map((l, m) => (
-                    <div key={m} style={{ flex: 1, textAlign: 'center', fontSize: 8.5, fontWeight: 600, color: T.muted }}>{nMonths > 6 && m % 2 === 1 ? '' : l}</div>
+                    <div key={m} style={{ flex: 1, textAlign: 'center', fontSize: 8.5, fontWeight: 600, color: T.muted }}>{mCount > 6 && m % 2 === 1 ? '' : l}</div>
                   ))}
                 </div>
               </Card>
