@@ -2728,9 +2728,7 @@ function Spends({ T, showLogos, period, actions, enriched, onToggle, of }) {
         <CardTypePill T={T} value={of.cardType} onClick={of.openCardType} />
       </div>
 
-      {multi
-        ? <BankChips T={T} linked={of.linked} filter={of.filter} onFilter={of.setFilter} onLink={of.openPicker} />
-        : <LinkPromoCard T={T} onLink={of.openPicker} />}
+      <BankChips T={T} linked={of.linked} filter={of.filter} onFilter={of.setFilter} />
       {staleBank && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: '#B07D18', margin: '10px 2px 0' }}>
           <span style={{ width: 6, height: 6, borderRadius: 999, background: '#E0A63A', flexShrink: 0 }} />
@@ -3167,8 +3165,8 @@ function LinkPromoCard({ T, onLink }) {
   );
 }
 
-// Per-bank filter — All accounts · ADIB · FAB · … · + Link
-function BankChips({ T, linked, filter, onFilter, onLink }) {
+// Per-bank filter — All accounts · ADIB · FAB · …
+function BankChips({ T, linked, filter, onFilter }) {
   const banks = OFD().BANKS.filter((b) => linked.includes(b.id));
   const chip = (key, label, dot, stale) => {
     const active = filter === key;
@@ -3190,17 +3188,13 @@ function BankChips({ T, linked, filter, onFilter, onLink }) {
     <div className="of-chips" style={{ display: 'flex', gap: 8, overflowX: 'auto', margin: '14px -18px 0', padding: '0 18px 2px', scrollbarWidth: 'none' }}>
       {chip('all', 'All accounts')}
       {banks.map((b) => chip(b.id, b.name, b.color, b.stale))}
-      <button className="pressable" onClick={onLink} style={{
-        display: 'inline-flex', alignItems: 'center', gap: 5, flexShrink: 0, whiteSpace: 'nowrap',
-        border: `1px dashed ${hexA(T.accent, 0.55)}`, borderRadius: 999, padding: '7px 13px',
-        cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 620, background: 'transparent', color: T.accent,
-      }}>+ Link</button>
     </div>
   );
 }
 
-// Linked accounts — freshness per source, unlink, and the link entry point.
-function AccountsSheet({ T, open, onClose, linked, onLink, onUnlink, z = 380 }) {
+// Linked accounts — read-only view of what arrived from ADIB's app.
+// Linking, consent and revocation all live upstream in the ADIB app itself.
+function AccountsSheet({ T, open, onClose, linked, z = 380 }) {
   const banks = OFD().BANKS.filter((b) => linked.includes(b.id));
   return (
     <Sheet T={T} open={open} onClose={onClose} title="Linked accounts" z={z}>
@@ -3218,27 +3212,15 @@ function AccountsSheet({ T, open, onClose, linked, onLink, onUnlink, z = 380 }) 
                 {b.mask} · {b.fresh}
               </div>
             </div>
-            {!b.host && (
-              <button className="pressable" onClick={() => onUnlink(b.id)} style={{
-                border: `1px solid ${T.line}`, background: T.surface, color: T.muted, cursor: 'pointer', fontFamily: 'inherit',
-                fontSize: 12, fontWeight: 600, padding: '6px 11px', borderRadius: 999, flexShrink: 0,
-              }}>Unlink</button>
-            )}
             {i < a.length - 1 && <div style={{ position: 'absolute', left: 55, right: 0, bottom: 0, height: 1, background: T.faint }} />}
           </div>
         ))}
       </Card>
-      <button className="pressable" onClick={onLink} style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, width: '100%',
-        marginTop: 14, padding: '14px 0', borderRadius: 14, border: 'none', cursor: 'pointer', fontFamily: 'inherit',
-        background: T.accent, color: '#fff', fontSize: 15, fontWeight: 620,
-      }}>Link another account</button>
       <div style={{ display: 'flex', gap: 9, alignItems: 'flex-start', marginTop: 14, padding: '12px 14px', borderRadius: 14, background: T.dark ? 'rgba(255,255,255,0.05)' : 'rgba(7,3,18,0.04)' }}>
         <span style={{ marginTop: 1, flexShrink: 0, color: T.muted }}><ShieldIcon size={15} stroke="currentColor" /></span>
         <div style={{ fontSize: 11.5, color: T.muted, lineHeight: 1.5 }}>
-          Powered by <b style={{ color: T.ink }}>Al Tareq</b>, the UAE Open Finance network regulated by the CBUAE.
-          Access is read-only — ADIB can see the balances and transactions you approve, and can never move money.
-          Unlinking removes that bank's data from this view.
+          Connected via <b style={{ color: T.ink }}>Al Tareq</b>, the UAE Open Finance network regulated by the CBUAE.
+          Access is read-only. Accounts are linked and managed in your ADIB app settings, and this view updates automatically.
         </div>
       </div>
     </Sheet>
@@ -3487,13 +3469,12 @@ function ExpensesApp() {
   const [fbTxn, setFbTxn] = React.useState(null);
   const [fbOpen, setFbOpen] = React.useState(false);
 
-  // ── Open Finance state — linked banks, view filter, consent journey ──
-  const [linked, setLinked] = React.useState(['adib']);
+  // ── Open Finance state — linking + consent happen in ADIB's own app,
+  //    upstream of this module. Here every bank arrives already linked;
+  //    this view only reflects and filters them.
+  const [linked] = React.useState(['adib', 'fab', 'enbd', 'mashreq', 'cbd']);
   const [bankFilter, setBankFilter] = React.useState('all');
   const [accountsOpen, setAccountsOpen] = React.useState(false);
-  const [pickerOpen, setPickerOpen] = React.useState(false);
-  const [consentBank, setConsentBank] = React.useState(null);
-  const [ofToast, setOfToast] = React.useState(null);
   const [cardType, setCardTypeState] = React.useState('all');
   const [cardTypeOpen, setCardTypeOpen] = React.useState(false);
   const effFilter = bankFilter !== 'all' && !linked.includes(bankFilter) ? 'all' : bankFilter;
@@ -3505,15 +3486,6 @@ function ExpensesApp() {
     linked, filter: effFilter, setFilter: setBankFilter,
     cardType, setCardType: setCardTypeState, openCardType: () => setCardTypeOpen(true),
     openAccounts: () => setAccountsOpen(true),
-    openPicker: () => { setAccountsOpen(false); setPickerOpen(true); },
-    startConsent: (bank) => { setPickerOpen(false); setConsentBank(bank); },
-    link: (bid) => setLinked((l) => (l.includes(bid) ? l : [...l, bid])),
-    linkDone: (bank) => {
-      setConsentBank(null);
-      setOfToast(`${bank.name} linked — your spending is now unified`);
-      setTimeout(() => setOfToast(null), 3400);
-    },
-    unlink: (bid) => { setLinked((l) => l.filter((x) => x !== bid)); setBankFilter((f) => (f === bid ? 'all' : f)); },
   };
 
   const scoped = () => window.EXP_DATA.forPeriod(period);
@@ -3568,11 +3540,10 @@ function ExpensesApp() {
 
           {/* Sheet stack — z-order matches how they open on top of one another. */}
           <React.Fragment>
-          <AccountsSheet T={T} open={accountsOpen} onClose={() => setAccountsOpen(false)} linked={linked} onLink={of.openPicker} onUnlink={of.unlink} z={380} />
-          <BankPickerSheet T={T} open={pickerOpen} onClose={() => setPickerOpen(false)} linked={linked} onPick={of.startConsent} z={390} />
-          <ConsentSheet T={T} bank={consentBank} open={!!consentBank} onCancel={() => setConsentBank(null)} onApprove={of.link} onDone={of.linkDone} z={400} />
+          <AccountsSheet T={T} open={accountsOpen} onClose={() => setAccountsOpen(false)} linked={linked} z={380} />
+          {/* BankPickerSheet / ConsentSheet / OFToast stay defined but unmounted:
+              linking and consent live in ADIB's own app, not in this module. */}
           <CardTypeSheet T={T} open={cardTypeOpen} onClose={() => setCardTypeOpen(false)} value={cardType} onPick={setCardTypeState} period={period} z={370} />
-          <OFToast T={T} message={ofToast} />
           <BreakdownSheet T={T} open={breakdownOpen} onClose={() => setBreakdownOpen(false)} showLogos={t.showLogos} period={period} actions={actions} z={210} />
           <AllTxnsSheet T={T} open={allTxnsOpen} onClose={() => setAllTxnsOpen(false)} showLogos={t.showLogos} period={period} onTxn={(tx) => actions.openTxn(tx)} z={230} />
           {trends && <TrendsPage key={trends.mode + '-' + trends.catId} T={T} showLogos={t.showLogos} period={period} actions={actions} mode={trends.mode} initialCatId={trends.catId} onClose={() => setTrends(null)} />}
