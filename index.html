@@ -3914,7 +3914,13 @@ function CardTypePill({ T, value, product = 'all', owner = 'all', onClick }) {
 // its own spend. Picking a product clears the type filter and vice versa.
 function CardTypeSheet({ T, open, onClose, value, onPick, product, onProduct, owner, onOwner, period, z = 370 }) {
   const D0 = OFD();
-  const typeTotals = open ? D0.totalsByType(period, owner) : {};
+  // The owner lens is STAGED: it re-scopes the numbers inside this sheet
+  // immediately, but the screen behind only updates when the sheet closes —
+  // otherwise the background visibly reflows under the backdrop on every tap.
+  const [localOwner, setLocalOwner] = React.useState(owner);
+  React.useEffect(() => { if (open) setLocalOwner(owner); }, [open]);
+  const commitClose = () => { if (localOwner !== owner) onOwner(localOwner); onClose(); };
+  const typeTotals = open ? D0.totalsByType(period, localOwner) : {};
   const prodTotals = open ? D0.totalsByProduct(period) : [];
   const prodAmt = {}; prodTotals.forEach((x) => { prodAmt[x.product.id] = x.total; });
   const banks = D0.BANKS.filter((b) => D0.linkedBanks().includes(b.id));
@@ -3923,9 +3929,9 @@ function CardTypeSheet({ T, open, onClose, value, onPick, product, onProduct, ow
   const lens = (
     <div style={{ display: 'flex', gap: 4, padding: 4, borderRadius: 12, background: T.dark ? 'rgba(255,255,255,0.07)' : 'rgba(7,3,18,0.05)', marginBottom: 14 }}>
       {[{ id: 'all', label: 'Everyone' }, ...D0.OWNERS.map((o) => ({ id: o.id, label: o.short }))].map((o) => {
-        const active = owner === o.id;
+        const active = localOwner === o.id;
         return (
-          <button key={o.id} className="pressable" onClick={() => onOwner(o.id)} style={{
+          <button key={o.id} className="pressable" onClick={() => setLocalOwner(o.id)} style={{
             flex: 1, padding: '8px 0', borderRadius: 9, border: 'none', cursor: 'pointer', fontFamily: 'inherit',
             fontSize: 13, fontWeight: active ? 660 : 560, color: active ? T.ink : T.muted,
             background: active ? T.bg : 'transparent', boxShadow: active ? '0 1px 4px rgba(0,0,0,0.12)' : 'none',
@@ -3967,7 +3973,7 @@ function CardTypeSheet({ T, open, onClose, value, onPick, product, onProduct, ow
   );
 
   return (
-    <Sheet T={T} open={open} onClose={onClose} title="Accounts & cards" height="88%" z={z}>
+    <Sheet T={T} open={open} onClose={commitClose} title="Accounts & cards" height="88%" z={z}>
       <div style={{ fontSize: 13, color: T.muted, lineHeight: 1.5, margin: '0 2px 12px' }}>
         Split your spending by who spent it, a card type, or a single account — across every linked bank.
       </div>
@@ -3975,7 +3981,7 @@ function CardTypeSheet({ T, open, onClose, value, onPick, product, onProduct, ow
 
       <Card T={T} pad="2px 16px">
         {row({ key: 'all', icon: typeIcon, title: 'All accounts & cards', amt: typeTotals.all || 0, active: allActive,
-          onClick: () => { onPick('all'); onProduct('all'); onClose(); } })}
+          onClick: () => { onPick('all'); onProduct('all'); commitClose(); } })}
       </Card>
 
       <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: T.muted, margin: '16px 4px 8px' }}>By type</div>
@@ -3984,7 +3990,7 @@ function CardTypeSheet({ T, open, onClose, value, onPick, product, onProduct, ow
           const amt = typeTotals[t.id] || 0;
           return row({ key: t.id, icon: typeIcon, title: t.label, amt, disabled: amt <= 0,
             active: value === t.id && product === 'all', divider: i < a.length - 1,
-            onClick: () => { onPick(t.id); onProduct('all'); onClose(); } });
+            onClick: () => { onPick(t.id); onProduct('all'); commitClose(); } });
         })}
       </Card>
 
@@ -4006,9 +4012,9 @@ function CardTypeSheet({ T, open, onClose, value, onPick, product, onProduct, ow
                 return row({ key: p.id, icon: typeIcon, title: (p.nickname || p.label) + ' ' + p.mask,
                   caption: [p.nickname ? p.label : null, o && p.owner !== 'you' ? o.name : null].filter(Boolean).join(' · ') || null,
                   amt: prodAmt[p.id] || 0,
-                  disabled: (prodAmt[p.id] || 0) <= 0 || (owner !== 'all' && p.owner !== owner),
+                  disabled: (prodAmt[p.id] || 0) <= 0 || (localOwner !== 'all' && p.owner !== localOwner),
                   active: product === p.id, divider: i < a.length - 1,
-                  onClick: () => { onProduct(p.id); onPick('all'); onClose(); } });
+                  onClick: () => { onProduct(p.id); onPick('all'); commitClose(); } });
               })}
             </Card>
           </div>
