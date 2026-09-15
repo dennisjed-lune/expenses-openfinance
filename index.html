@@ -420,6 +420,27 @@
     ACTIVE = sA; ACTIVE_TYPE = sT; ACTIVE_PRODUCT = sP; ACTIVE_OWNER = sO;
     return out;
   }
+  // Weekly totals for a ≤1-month window (whole view or one category) under a
+  // temporary scope — the Compare trend shows weeks when months are too coarse.
+  function scopedWeeklyTotals(scope, cid) {
+    const sA = ACTIVE, sT = ACTIVE_TYPE, sP = ACTIVE_PRODUCT, sO = ACTIVE_OWNER;
+    ACTIVE = scope.bank ? [scope.bank] : LINKED;
+    ACTIVE_TYPE = 'all';
+    ACTIVE_PRODUCT = scope.product || 'all';
+    ACTIVE_OWNER = scope.owner || 'all';
+    const m = NUM_MONTHS - 1;
+    const vals = [0, 0, 0, 0];
+    CATEGORIES.forEach((c) => {
+      if (cid && c.id !== cid) return;
+      eachActiveBucket(c.id, (bm, bid) => {
+        const mm = bm.months[m];
+        if (mm.amount > 0) bucketTxns(bm.name, c.id, m, mm.amount, mm.count, bid, bm.product)
+          .forEach((t) => { vals[Math.min(3, Math.floor((Number(t.day) - 1) / 7))] += t.amount; });
+      });
+    });
+    ACTIVE = sA; ACTIVE_TYPE = sT; ACTIVE_PRODUCT = sP; ACTIVE_OWNER = sO;
+    return { labels: ['Week 1', 'Week 2', 'Week 3', 'Week 4'], vals: vals.map((v) => Math.round(v)) };
+  }
   // One brand's transactions under the same temporary scope — powers the
   // Compare page's brand tiles.
   function scopedBrandTxns(period, scope, cid, name) {
@@ -598,7 +619,7 @@
     ownerById: (id) => OWNER_BY_ID[id],
     setProduct, product: () => ACTIVE_PRODUCT,
     setOwner, owner: () => ACTIVE_OWNER,
-    totalsByProduct, totalsByOwner, totalsByBank, rankBy, compareSide, scopedBrandTxns, scopedCategoryMonths,
+    totalsByProduct, totalsByOwner, totalsByBank, rankBy, compareSide, scopedBrandTxns, scopedCategoryMonths, scopedWeeklyTotals,
   };
 })();
 
@@ -3350,6 +3371,8 @@ function ComparePage({ T, showLogos, period, actions, dim: dim0, a: a0, b: b0, o
     if (mCount <= 1) return `${l[mStart]} ${y[mStart]}`;
     return `${l[mStart]}${y[mStart] !== y[mEnd - 1] ? ' ' + y[mStart] : ''} – ${l[mEnd - 1]} ${y[mEnd - 1]}`;
   })();
+  // A window of about a month is too coarse for month bars — show weeks.
+  const weekly = D0.monthsForPeriod(period) === 1;
 
   // Every entity of the current dimension, for the slot pickers.
   const entities = React.useMemo(() => {
@@ -3451,10 +3474,17 @@ function ComparePage({ T, showLogos, period, actions, dim: dim0, a: a0, b: b0, o
           {catRows.map(({ cat, vals }, i, arr) => {
             const expanded = openCat === cat.id;
             let inline = null;
-            if (expanded && mCount > 1) {
-              const mA = D0.scopedCategoryMonths(scopeFor(keys[0]), cat.id);
-              const mB = D0.scopedCategoryMonths(scopeFor(keys[1]), cat.id);
-              const vA = mA.vals.slice(mStart, mEnd), vB = mB.vals.slice(mStart, mEnd), lbl = mA.labels.slice(mStart, mEnd);
+            if (expanded) {
+              let vA, vB, lbl;
+              if (weekly) {
+                const wA = D0.scopedWeeklyTotals(scopeFor(keys[0]), cat.id);
+                const wB = D0.scopedWeeklyTotals(scopeFor(keys[1]), cat.id);
+                vA = wA.vals; vB = wB.vals; lbl = wA.labels;
+              } else {
+                const mA = D0.scopedCategoryMonths(scopeFor(keys[0]), cat.id);
+                const mB = D0.scopedCategoryMonths(scopeFor(keys[1]), cat.id);
+                vA = mA.vals.slice(mStart, mEnd); vB = mB.vals.slice(mStart, mEnd); lbl = mA.labels.slice(mStart, mEnd);
+              }
               const mx = Math.max(1, ...vA, ...vB);
               inline = (
                 <div style={{ padding: '2px 0 12px 46px', animation: 'popIn .3s var(--ease-out) both' }}>
@@ -3476,9 +3506,9 @@ function ComparePage({ T, showLogos, period, actions, dim: dim0, a: a0, b: b0, o
             }
             return (
               <div key={cat.id} style={{ position: 'relative' }}>
-                <button className="pressable-row" onClick={() => mCount > 1 && setOpenCat(expanded ? null : cat.id)} style={{
+                <button className="pressable-row" onClick={() => setOpenCat(expanded ? null : cat.id)} style={{
                   display: 'flex', alignItems: 'center', gap: 12, width: '100%', padding: '11px 0',
-                  border: 'none', background: 'transparent', cursor: mCount > 1 ? 'pointer' : 'default', fontFamily: 'inherit', textAlign: 'left',
+                  border: 'none', background: 'transparent', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left',
                 }}>
                   <CategoryMark glyph={cat.glyph} color={cat.color} dark={T.dark} size={34} />
                   <div style={{ flex: 1, minWidth: 0 }}>
@@ -3498,7 +3528,7 @@ function ComparePage({ T, showLogos, period, actions, dim: dim0, a: a0, b: b0, o
                       ))}
                     </div>
                   </div>
-                  {mCount > 1 && <UIIcon name="chevD" size={14} stroke={T.muted} />}
+                  <UIIcon name="chevD" size={14} stroke={T.muted} />
                 </button>
                 {inline}
                 {i < arr.length - 1 && <div style={{ position: 'absolute', left: 46, right: 0, bottom: 0, height: 1, background: T.faint }} />}
@@ -3539,14 +3569,21 @@ function ComparePage({ T, showLogos, period, actions, dim: dim0, a: a0, b: b0, o
 
         {/* Month-by-month, both series — only the months inside the selected
             period (Dennis: never show 12 months when 1 was chosen). */}
-        {mCount > 1 && (() => {
-          const vAs = sides[0].data.monthly.vals.slice(mStart, mEnd);
-          const vBs = sides[1].data.monthly.vals.slice(mStart, mEnd);
-          const lbls = sides[0].data.monthly.labels.slice(mStart, mEnd);
+        {(() => {
+          let vAs, vBs, lbls;
+          if (weekly) {
+            const wA = D0.scopedWeeklyTotals(scopeFor(keys[0]));
+            const wB = D0.scopedWeeklyTotals(scopeFor(keys[1]));
+            vAs = wA.vals; vBs = wB.vals; lbls = wA.labels;
+          } else {
+            vAs = sides[0].data.monthly.vals.slice(mStart, mEnd);
+            vBs = sides[1].data.monthly.vals.slice(mStart, mEnd);
+            lbls = sides[0].data.monthly.labels.slice(mStart, mEnd);
+          }
           const mx = Math.max(1, ...vAs, ...vBs);
           return (
             <div>
-              <SectionTitle T={T}>Month by month · {rangeTitle}</SectionTitle>
+              <SectionTitle T={T}>Spending over time · {weekly ? 'by week' : rangeTitle}</SectionTitle>
               <Card T={T} pad={18}>
                 <div style={{ display: 'flex', alignItems: 'flex-end', gap: mCount > 6 ? 4 : 10, height: 110 }}>
                   {vAs.map((vA, m) => (
