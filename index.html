@@ -16,6 +16,8 @@
   button, input { font-family: inherit; }
   .exp-screens::-webkit-scrollbar { width: 0; display: none; }
   .exp-screens { scrollbar-width: none; }
+  .h-scroll { overflow-x: auto; scrollbar-width: none; }
+  .h-scroll::-webkit-scrollbar { display: none; }
   :root { --ease-out: cubic-bezier(.23,1,.32,1); --ease-drawer: cubic-bezier(.32,.72,0,1); }
   /* Emil: every pressable confirms the tap. */
   .pressable { transition: transform .14s var(--ease-out); }
@@ -404,7 +406,7 @@
     cur.cats.forEach((c) => c.brands.forEach((b) => brands.push({ ...b, catColor: c.color, glyph: c.glyph })));
     brands.sort((a, b) => b.total - a.total);
     ACTIVE = sA; ACTIVE_TYPE = sT; ACTIVE_PRODUCT = sP; ACTIVE_OWNER = sO;
-    return { cats: cur.cats, total: cur.total, prevTotal, monthly, brands: brands.slice(0, 5), count: cur.cats.reduce((s, c) => s + c.count, 0) };
+    return { cats: cur.cats, total: cur.total, prevTotal, monthly, brands: brands.slice(0, 10), count: cur.cats.reduce((s, c) => s + c.count, 0) };
   }
 
   // Merge the active banks' buckets per brand (for aggregates & charts).
@@ -3425,26 +3427,32 @@ function ComparePage({ T, showLogos, period, actions, dim: dim0, a: a0, b: b0, o
           ))}
         </Card>
 
-        {/* Top brands each side */}
+        {/* Top brands — one horizontal rail per side; the rail scrolls, the
+            page doesn't. */}
         <SectionTitle T={T}>Top brands</SectionTitle>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+        <Card T={T} pad="16px 0">
           {sides.map(({ ent, data }, si) => (
-            <Card key={si} T={T} pad={14}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+            <div key={si} style={{ marginTop: si === 1 ? 14 : 0, paddingTop: si === 1 ? 14 : 0, borderTop: si === 1 ? `1px solid ${T.faint}` : 'none' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '0 16px', marginBottom: 10 }}>
                 <span style={{ width: 7, height: 7, borderRadius: 999, background: SIDE_COLORS[si], flexShrink: 0 }} />
                 <span style={{ fontSize: 11.5, fontWeight: 640, color: T.muted, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{ent.name}</span>
               </div>
-              {data.brands.length === 0 && <div style={{ fontSize: 12, color: T.muted, padding: '8px 0' }}>No spend</div>}
-              {data.brands.map((b) => (
-                <div key={b.name} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0' }}>
-                  <MerchantMark name={b.name} glyph={b.glyph} catColor={b.catColor} showLogos={showLogos} dark={T.dark} size={24} radius={7} />
-                  <span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 580, color: T.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{b.name}</span>
-                  <span style={{ fontSize: 11.5, fontWeight: 600, color: T.muted, fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>{fmtAED(b.total)}</span>
-                </div>
-              ))}
-            </Card>
+              {data.brands.length === 0
+                ? <div style={{ fontSize: 12, color: T.muted, padding: '4px 16px 8px' }}>No spend in this period</div>
+                : (
+                  <div className="h-scroll" style={{ display: 'flex', gap: 8, padding: '0 16px 2px' }}>
+                    {data.brands.map((b) => (
+                      <div key={b.name} style={{ flexShrink: 0, width: 84, padding: '10px 6px', borderRadius: 13, background: T.dark ? 'rgba(255,255,255,0.05)' : 'rgba(7,3,18,0.033)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+                        <MerchantMark name={b.name} glyph={b.glyph} catColor={b.catColor} showLogos={showLogos} dark={T.dark} size={32} radius={9} />
+                        <span style={{ maxWidth: 72, fontSize: 10.5, fontWeight: 600, color: T.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{b.name}</span>
+                        <span style={{ fontSize: 10.5, fontWeight: 620, color: T.muted, fontVariantNumeric: 'tabular-nums' }}><Dirham size={9} color="currentColor" style={{ marginRight: 2 }} />{fmtAED(b.total)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+            </div>
           ))}
-        </div>
+        </Card>
 
         {/* Month-by-month, both series */}
         <SectionTitle T={T}>Last 12 months</SectionTitle>
