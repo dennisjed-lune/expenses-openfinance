@@ -254,13 +254,16 @@
   // One product per bank per owner (Dennis 2026-09-15: fewer accounts).
   // You: ADIB current + ENBD credit + Mashreq debit. Wife: ADIB current +
   // FAB credit + CBD debit. ADIB hosts one account each.
+  // `balance` (AED, from AIS balance scope) exists on account-backed products
+  // (current accounts + the accounts behind debit cards); credit cards have
+  // none here. Transfers move between YOUR account-backed products.
   const PRODUCTS = [
-    { id: 'adib-you',  bank: 'adib',    type: 'current', label: 'Current account', mask: '•• 4021', owner: 'you' },
+    { id: 'adib-you',  bank: 'adib',    type: 'current', label: 'Current account', mask: '•• 4021', owner: 'you', balance: 18450.22 },
     { id: 'enbd-you',  bank: 'enbd',    type: 'credit',  label: 'Credit Card',     mask: '•• 1276', owner: 'you', nickname: 'Travel card' },
-    { id: 'mq-you',    bank: 'mashreq', type: 'debit',   label: 'Debit Card',      mask: '•• 5544', owner: 'you' },
-    { id: 'adib-wife', bank: 'adib',    type: 'current', label: 'Current account', mask: '•• 7738', owner: 'wife', nickname: "Wife's ADIB" },
+    { id: 'mq-you',    bank: 'mashreq', type: 'debit',   label: 'Debit Card',      mask: '•• 5544', owner: 'you', balance: 9320.10 },
+    { id: 'adib-wife', bank: 'adib',    type: 'current', label: 'Current account', mask: '•• 7738', owner: 'wife', nickname: "Wife's ADIB", balance: 12880.45 },
     { id: 'fab-wife',  bank: 'fab',     type: 'credit',  label: 'Credit Card',     mask: '•• 6644', owner: 'wife', nickname: "Wife's FAB" },
-    { id: 'cbd-wife',  bank: 'cbd',     type: 'debit',   label: 'Debit Card',      mask: '•• 9902', owner: 'wife' },
+    { id: 'cbd-wife',  bank: 'cbd',     type: 'debit',   label: 'Debit Card',      mask: '•• 9902', owner: 'wife', balance: 3652.30 },
   ];
   const PRODUCT_BY_ID = {}; PRODUCTS.forEach((p) => { PRODUCT_BY_ID[p.id] = p; });
   const OWNER_BY_ID = {}; OWNERS.forEach((o) => { OWNER_BY_ID[o.id] = o; });
@@ -3732,7 +3735,7 @@ function BankChips({ T, linked, filter, onFilter }) {
 
 // Linked accounts — read-only view of what arrived from ADIB's app.
 // Linking, consent and revocation all live upstream in the ADIB app itself.
-function AccountsSheet({ T, open, onClose, linked, z = 380 }) {
+function AccountsSheet({ T, open, onClose, linked, onTransfer, z = 380 }) {
   const banks = OFD().BANKS.filter((b) => linked.includes(b.id));
   return (
     <Sheet T={T} open={open} onClose={onClose} title="Linked accounts" z={z}>
@@ -3754,13 +3757,175 @@ function AccountsSheet({ T, open, onClose, linked, z = 380 }) {
           </div>
         ))}
       </Card>
+      {onTransfer && (
+        <button className="pressable" onClick={onTransfer} style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, width: '100%',
+          marginTop: 14, padding: '14px 0', borderRadius: 14, border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+          background: T.accent, color: '#fff', fontSize: 15, fontWeight: 620,
+        }}>Move money between accounts</button>
+      )}
       <div style={{ display: 'flex', gap: 9, alignItems: 'flex-start', marginTop: 14, padding: '12px 14px', borderRadius: 14, background: T.dark ? 'rgba(255,255,255,0.05)' : 'rgba(7,3,18,0.04)' }}>
         <span style={{ marginTop: 1, flexShrink: 0, color: T.muted }}><ShieldIcon size={15} stroke="currentColor" /></span>
         <div style={{ fontSize: 11.5, color: T.muted, lineHeight: 1.5 }}>
           Connected via <b style={{ color: T.ink }}>Al Tareq</b>, the UAE Open Finance network regulated by the CBUAE.
-          Access is read-only. Accounts are linked and managed in your ADIB app settings, and this view updates automatically.
+          Data access is read-only, and accounts are linked and managed in your ADIB app settings. Money moves only when you approve a transfer with the sending bank.
         </div>
       </div>
+    </Sheet>
+  );
+}
+
+// ── Move money — transfers between your accounts through Open Finance
+//    service initiation. The module collects from/to/amount; the APPROVAL is
+//    a hand-off to the sending bank via Al Tareq, never a consent this
+//    module owns. Balances come from the AIS balance scope.
+function TransferSheet({ T, open, onClose, balances, onTransfer, onDone, z = 385 }) {
+  const D0 = OFD();
+  const accts = D0.PRODUCTS.filter((p) => p.balance != null);
+  const mine = accts.filter((p) => p.owner === 'you');
+  const [from, setFrom] = React.useState('mq-you');
+  const [to, setTo] = React.useState('adib-you');
+  const [amount, setAmount] = React.useState('');
+  const [picking, setPicking] = React.useState(null); // null | 'from' | 'to'
+  const [stage, setStage] = React.useState('form');   // form | handoff | done
+  React.useEffect(() => { if (open) { setStage('form'); setAmount(''); setPicking(null); setFrom('mq-you'); setTo('adib-you'); } }, [open]);
+  React.useEffect(() => {
+    if (stage === 'handoff') { const t = setTimeout(() => { onTransfer(from, to, amt); setStage('done'); }, 1600); return () => clearTimeout(t); }
+  }, [stage]);
+
+  const pf = D0.productById(from), pt = D0.productById(to);
+  const bf = D0.bankById(pf.bank), bt = D0.bankById(pt.bank);
+  const amt = Math.round((parseFloat(amount) || 0) * 100) / 100;
+  const over = amt > (balances[from] || 0);
+  const acctName = (p, b) => p.nickname || (p.type === 'current' ? `${b.abbr} Current` : `${b.name} account`);
+
+  const slotRow = (kind, p, b) => (
+    <button key={kind} className="pressable-row" onClick={() => setPicking(picking === kind ? null : kind)} style={{
+      display: 'flex', alignItems: 'center', gap: 12, width: '100%', padding: '12px 0',
+      border: 'none', background: 'transparent', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left', position: 'relative',
+    }}>
+      <BankAvatar bank={b} size={38} radius={11} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: T.muted }}>{kind}</div>
+        <div style={{ fontSize: 14.5, fontWeight: 620, color: T.ink, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{acctName(p, b)} {p.mask}</div>
+      </div>
+      <div style={{ textAlign: 'right', flexShrink: 0 }}>
+        <div style={{ fontSize: 11, color: T.muted }}>Balance</div>
+        <div style={{ fontSize: 13.5, fontWeight: 620, color: T.ink, fontVariantNumeric: 'tabular-nums' }}><Dirham size={11} color="currentColor" style={{ marginRight: 2 }} />{fmtAED(balances[p.id] || 0)}</div>
+      </div>
+      <UIIcon name="chevD" size={15} stroke={T.muted} />
+    </button>
+  );
+
+  const pickerList = (kind) => (
+    <div style={{ margin: '0 0 6px', padding: '4px 10px', borderRadius: 14, background: T.dark ? 'rgba(255,255,255,0.05)' : 'rgba(7,3,18,0.035)' }}>
+      {accts.map((p) => {
+        const b = D0.bankById(p.bank);
+        const takenByOther = kind === 'from' ? p.id === to : p.id === from;
+        const viewOnly = p.owner !== 'you';
+        const disabled = viewOnly || takenByOther;
+        return (
+          <button key={p.id} disabled={disabled} className={disabled ? undefined : 'pressable-row'}
+            onClick={() => { (kind === 'from' ? setFrom : setTo)(p.id); setPicking(null); }}
+            style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '9px 0', border: 'none', background: 'transparent',
+              cursor: disabled ? 'default' : 'pointer', fontFamily: 'inherit', textAlign: 'left', opacity: disabled ? 0.4 : 1 }}>
+            <BankAvatar bank={b} size={28} radius={8} />
+            <span style={{ flex: 1, minWidth: 0, fontSize: 13.5, fontWeight: 580, color: T.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{acctName(p, b)} {p.mask}</span>
+            <span style={{ fontSize: 11.5, fontWeight: 580, color: T.muted, flexShrink: 0 }}>{viewOnly ? 'View only' : <span style={{ fontVariantNumeric: 'tabular-nums' }}><Dirham size={10} color="currentColor" style={{ marginRight: 2 }} />{fmtAED(balances[p.id] || 0)}</span>}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+
+  return (
+    <Sheet T={T} open={open} onClose={stage === 'handoff' ? () => {} : onClose} title={stage === 'form' ? 'Move money' : ''} z={z}>
+      {stage === 'form' && (
+        <div>
+          <Card T={T} pad="2px 16px">
+            {slotRow('from', pf, bf)}
+            {picking === 'from' && pickerList('from')}
+            <div style={{ position: 'relative', height: 1, background: T.faint }}>
+              <button className="pressable" aria-label="Swap accounts" onClick={() => { setFrom(to); setTo(from); }} style={{
+                position: 'absolute', right: 8, top: -14, width: 28, height: 28, borderRadius: 999, border: `1px solid ${T.line}`,
+                background: T.surface, color: T.accent, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, zIndex: 2,
+              }}>⇅</button>
+            </div>
+            {slotRow('to', pt, bt)}
+            {picking === 'to' && pickerList('to')}
+          </Card>
+
+          <div style={{ textAlign: 'center', margin: '20px 0 4px' }}>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ color: T.muted, display: 'inline-flex' }}><Dirham size={22} color="currentColor" /></span>
+              <input value={amount} onChange={(e) => { const v = e.target.value.replace(/[^\d.]/g, ''); setAmount(v); }}
+                placeholder="0" inputMode="decimal" style={{
+                  width: 170, fontSize: 40, fontWeight: 720, letterSpacing: '-0.03em', color: over ? '#C2402F' : T.ink,
+                  background: 'transparent', border: 'none', outline: 'none', textAlign: 'left', fontFamily: 'inherit', fontVariantNumeric: 'tabular-nums',
+                }} />
+            </div>
+            <div style={{ fontSize: 12, color: over ? '#C2402F' : T.muted, marginTop: 2 }}>
+              {over ? `Not enough in ${acctName(pf, bf)}` : `Up to ${fmtAED(balances[from] || 0)} available`}
+            </div>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'center', gap: 8, margin: '12px 0 4px' }}>
+            {[500, 1000, 2500].map((q) => (
+              <button key={q} className="pressable" onClick={() => setAmount(String(q))} style={{
+                padding: '7px 14px', borderRadius: 999, border: `1px solid ${T.line}`, background: T.surface,
+                color: T.ink, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', fontVariantNumeric: 'tabular-nums',
+              }}>{fmtAED(q)}</button>
+            ))}
+          </div>
+
+          <button className="pressable" disabled={!(amt > 0) || over} onClick={() => setStage('handoff')} style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', marginTop: 16, padding: '14px 0',
+            borderRadius: 14, border: 'none', cursor: (!(amt > 0) || over) ? 'default' : 'pointer', fontFamily: 'inherit',
+            background: (!(amt > 0) || over) ? hexA(T.accent, 0.35) : T.accent, color: '#fff', fontSize: 15, fontWeight: 620,
+          }}>Continue</button>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginTop: 12, fontSize: 11.5, color: T.muted, lineHeight: 1.5 }}>
+            <span style={{ marginTop: 1, flexShrink: 0 }}><ShieldIcon size={13} stroke="currentColor" /></span>
+            <span>Transfers use UAE Open Finance service initiation (Al Tareq). You approve every transfer with the sending bank — ADIB never moves money on its own.</span>
+          </div>
+        </div>
+      )}
+
+      {stage === 'handoff' && (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '26px 0 30px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+            <BankAvatar bank={bf} size={52} radius={15} />
+            <span style={{ display: 'flex', alignItems: 'center', gap: 3, color: T.muted }}>
+              <span style={{ width: 18, height: 1.5, background: T.line }} />
+              <ShieldIcon size={17} stroke={T.accent} />
+              <span style={{ width: 18, height: 1.5, background: T.line }} />
+            </span>
+            <BankAvatar bank={bt} size={52} radius={15} />
+          </div>
+          <div style={{ width: 30, height: 30, marginTop: 22, borderRadius: 999, border: `3px solid ${hexA(T.accent, 0.25)}`, borderTopColor: T.accent, animation: 'of-spin 0.9s linear infinite' }} />
+          <div style={{ fontSize: 15.5, fontWeight: 660, color: T.ink, marginTop: 16, fontVariantNumeric: 'tabular-nums' }}>Approving with {bf.name}…</div>
+          <div style={{ fontSize: 12.5, color: T.muted, marginTop: 5, textAlign: 'center', lineHeight: 1.5, maxWidth: 270 }}>
+            {fmtAED(amt)} AED · {acctName(pf, bf)} {pf.mask} → {acctName(pt, bt)} {pt.mask}<br />Confirmed with {bf.name} via Al Tareq.
+          </div>
+        </div>
+      )}
+
+      {stage === 'done' && (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '22px 0 26px' }}>
+          <span style={{ width: 54, height: 54, borderRadius: 999, display: 'flex', alignItems: 'center', justifyContent: 'center', background: T.accent, color: '#fff', animation: 'popIn .35s var(--ease-out) both' }}>
+            <CheckIcon size={24} stroke="#fff" />
+          </span>
+          <div style={{ fontSize: 17, fontWeight: 680, color: T.ink, marginTop: 14, fontVariantNumeric: 'tabular-nums' }}><Dirham size={13} color="currentColor" style={{ marginRight: 3 }} />{fmtAED(amt)} on its way</div>
+          <div style={{ fontSize: 12.5, color: T.muted, marginTop: 5, textAlign: 'center', lineHeight: 1.5 }}>
+            {acctName(pf, bf)} {pf.mask} → {acctName(pt, bt)} {pt.mask}
+          </div>
+          <div style={{ marginTop: 16, padding: '10px 16px', borderRadius: 12, background: T.dark ? 'rgba(255,255,255,0.05)' : 'rgba(7,3,18,0.04)', fontSize: 12.5, color: T.muted, fontVariantNumeric: 'tabular-nums' }}>
+            New {acctName(pt, bt)} balance · <b style={{ color: T.ink }}><Dirham size={11} color="currentColor" style={{ marginRight: 2 }} />{fmtAED(balances[to] || 0)}</b>
+          </div>
+          <button className="pressable" onClick={() => onDone(amt, acctName(pt, bt))} style={{
+            width: '100%', marginTop: 18, padding: '14px 0', borderRadius: 14, border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+            background: T.accent, color: '#fff', fontSize: 15, fontWeight: 620,
+          }}>Done</button>
+        </div>
+      )}
     </Sheet>
   );
 }
@@ -4096,6 +4261,18 @@ function ExpensesApp() {
   const [product, setProductState] = React.useState('all');
   const [owner, setOwnerState] = React.useState('all');
   const [cardTypeOpen, setCardTypeOpen] = React.useState(false);
+  // ── Transfers (Open Finance service initiation) ──
+  const [transferOpen, setTransferOpen] = React.useState(false);
+  const [balances, setBalances] = React.useState(() => {
+    const b = {}; window.EXP_DATA.PRODUCTS.forEach((p) => { if (p.balance != null) b[p.id] = p.balance; }); return b;
+  });
+  const [ofToast, setOfToast] = React.useState(null);
+  const doTransfer = (from, to, amt) => setBalances((b) => ({ ...b, [from]: Math.round((b[from] - amt) * 100) / 100, [to]: Math.round((b[to] + amt) * 100) / 100 }));
+  const transferDone = (amt, toName) => {
+    setTransferOpen(false);
+    setOfToast(`AED ${amt.toLocaleString('en-US')} moved to ${toName}`);
+    setTimeout(() => setOfToast(null), 3400);
+  };
   const effFilter = bankFilter !== 'all' && !linked.includes(bankFilter) ? 'all' : bankFilter;
   // Point every data function at the current bank set + filters BEFORE children render.
   window.EXP_DATA.setBanks(linked, effFilter === 'all' ? linked : [effFilter]);
@@ -4168,8 +4345,10 @@ function ExpensesApp() {
 
           {/* Sheet stack — z-order matches how they open on top of one another. */}
           <React.Fragment>
-          <AccountsSheet T={T} open={accountsOpen} onClose={() => setAccountsOpen(false)} linked={linked} z={380} />
-          {/* BankPickerSheet / ConsentSheet / OFToast stay defined but unmounted:
+          <AccountsSheet T={T} open={accountsOpen} onClose={() => setAccountsOpen(false)} linked={linked} onTransfer={() => { setAccountsOpen(false); setTransferOpen(true); }} z={380} />
+          <TransferSheet T={T} open={transferOpen} onClose={() => setTransferOpen(false)} balances={balances} onTransfer={doTransfer} onDone={transferDone} z={385} />
+          <OFToast T={T} message={ofToast} />
+          {/* BankPickerSheet / ConsentSheet stay defined but unmounted:
               linking and consent live in ADIB's own app, not in this module. */}
           <CardTypeSheet T={T} open={cardTypeOpen} onClose={() => setCardTypeOpen(false)} value={cardType} onPick={setCardTypeState}
             product={product} onProduct={setProductState} owner={owner} onOwner={setOwnerState} period={period} z={370} />
