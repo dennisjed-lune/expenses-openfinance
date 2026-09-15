@@ -242,25 +242,25 @@
 
   // ── Accounts, cards and owners ───────────────────────────────────────
   // Real product instances, not bare card types (ADIB feedback): more than
-  // one account at the same bank with different card types, plus separate
-  // ownership — personal, a joint account, and a sole-proprietor business.
+  // one account at the same bank with different card types, plus accounts
+  // with separate ownership (the wife's). ADIB lets added accounts carry a
+  // NICKNAME — where one exists it is the display name, mask kept.
   const OWNERS = [
-    { id: 'you',   name: 'You',                 short: 'Personal' },
-    { id: 'joint', name: 'Joint account',       short: 'Joint' },
-    { id: 'biz',   name: 'Al Noor Trading LLC', short: 'Business' },
+    { id: 'you',  name: 'You',  short: 'Mine' },
+    { id: 'wife', name: 'Wife', short: 'Wife' },
   ];
   const PRODUCTS = [
     { id: 'adib-cur',  bank: 'adib',    type: 'current', label: 'Current account',  mask: '•• 4021', owner: 'you' },
     { id: 'adib-sav',  bank: 'adib',    type: 'savings', label: 'Savings account',  mask: '•• 7738', owner: 'you' },
     { id: 'adib-deb',  bank: 'adib',    type: 'debit',   label: 'Visa Debit',       mask: '•• 2210', owner: 'you' },
     { id: 'adib-cov',  bank: 'adib',    type: 'credit',  label: 'Covered Card',     mask: '•• 8402', owner: 'you' },
-    { id: 'fab-cur',   bank: 'fab',     type: 'current', label: 'Current account',  mask: '•• 8830', owner: 'you' },
+    { id: 'fab-cur',   bank: 'fab',     type: 'current', label: 'Current account',  mask: '•• 8830', owner: 'you', nickname: 'Salary account' },
     { id: 'fab-cc',    bank: 'fab',     type: 'credit',  label: 'Cashback Card',    mask: '•• 5011', owner: 'you' },
-    { id: 'fab-joint', bank: 'fab',     type: 'current', label: 'Joint Current',    mask: '•• 6644', owner: 'joint' },
-    { id: 'enbd-cur',  bank: 'enbd',    type: 'current', label: 'Business Current', mask: '•• 1276', owner: 'biz' },
-    { id: 'enbd-deb',  bank: 'enbd',    type: 'debit',   label: 'Business Debit',   mask: '•• 3305', owner: 'biz' },
+    { id: 'fab-wife',  bank: 'fab',     type: 'current', label: 'Current account',  mask: '•• 6644', owner: 'wife', nickname: "Wife's FAB" },
+    { id: 'enbd-cur',  bank: 'enbd',    type: 'current', label: 'Current account',  mask: '•• 1276', owner: 'wife', nickname: "Wife's ENBD" },
+    { id: 'enbd-deb',  bank: 'enbd',    type: 'debit',   label: 'Debit card',       mask: '•• 3305', owner: 'wife' },
     { id: 'mq-cur',    bank: 'mashreq', type: 'current', label: 'Current account',  mask: '•• 5544', owner: 'you' },
-    { id: 'mq-cc',     bank: 'mashreq', type: 'credit',  label: 'Credit Card',      mask: '•• 7208', owner: 'you' },
+    { id: 'mq-cc',     bank: 'mashreq', type: 'credit',  label: 'Credit Card',      mask: '•• 7208', owner: 'you', nickname: 'Travel card' },
     { id: 'cbd-cur',   bank: 'cbd',     type: 'current', label: 'Current account',  mask: '•• 9902', owner: 'you' },
   ];
   const PRODUCT_BY_ID = {}; PRODUCTS.forEach((p) => { PRODUCT_BY_ID[p.id] = p; });
@@ -276,10 +276,10 @@
 
   // Each (bank, category, brand) bucket settles on ONE product — the way a
   // person actually pays: bills from accounts, daily spend on cards, family
-  // staples on the joint account, everything at ENBD through the business.
+  // staples on the wife's FAB account; ENBD is entirely the wife's bank.
   const BILL_CATS = new Set([9, 16, 17]);   // Household, Loans, Insurance
   const DAILY_CATS = new Set([6, 14]);      // Groceries, Transportation
-  const FAMILY_CATS = new Set([6, 9, 7]);   // joint-leaning at FAB
+  const FAMILY_CATS = new Set([6, 9, 7]);   // wife-leaning at FAB
   function assignProduct(bid, cid, name) {
     const r = rng(cid * 131 + name.length * 17 + bid.length * 29 + name.charCodeAt(0))();
     if (bid === 'adib') {
@@ -288,8 +288,8 @@
       return r < 0.62 ? 'adib-cov' : 'adib-deb';
     }
     if (bid === 'fab') {
-      if (BILL_CATS.has(cid)) return r < 0.85 ? 'fab-joint' : 'fab-cur';
-      if (FAMILY_CATS.has(cid) || cid === 10) return r < 0.8 ? 'fab-joint' : 'fab-cc'; // family staples + dining
+      if (BILL_CATS.has(cid)) return r < 0.85 ? 'fab-wife' : 'fab-cur';
+      if (FAMILY_CATS.has(cid) || cid === 10) return r < 0.8 ? 'fab-wife' : 'fab-cc'; // family staples + dining
       return r < 0.72 ? 'fab-cc' : 'fab-cur';
     }
     if (bid === 'enbd') return BILL_CATS.has(cid) || r >= 0.7 ? 'enbd-cur' : 'enbd-deb';
@@ -2452,9 +2452,13 @@ function TxnDetailSheet({ T, txn, open, onClose, showLogos, onImprove }) {
                     <BankAvatar bank={b} size={22} radius={6} />
                     <span style={{ minWidth: 0, textAlign: 'right' }}>
                       <span style={{ display: 'block', fontSize: 14.5, color: T.ink, fontWeight: 560, whiteSpace: 'nowrap' }}>
-                        {b.abbr || b.name} · {p ? p.label : (ct ? ct.label.toLowerCase() : '')} {p ? p.mask : b.mask}
+                        {b.abbr || b.name} · {p ? (p.nickname || p.label) : (ct ? ct.label.toLowerCase() : '')} {p ? p.mask : b.mask}
                       </span>
-                      {owner && <span style={{ display: 'block', fontSize: 11.5, color: T.muted, marginTop: 1 }}>{owner.name}</span>}
+                      {(owner || (p && p.nickname)) && (
+                        <span style={{ display: 'block', fontSize: 11.5, color: T.muted, marginTop: 1 }}>
+                          {[p && p.nickname ? p.label : null, owner ? owner.name : null].filter(Boolean).join(' · ')}
+                        </span>
+                      )}
                     </span>
                   </span>
                 </div>
