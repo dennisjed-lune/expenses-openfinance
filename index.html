@@ -240,9 +240,32 @@
     BANK_BRAND_MONTHLY[bid] = out;
   });
 
-  // ── Account/card-type dimension ─────────────────────────────────────
-  // Each (bank, category, brand) bucket settles on ONE product — the way a
-  // person actually pays: bills from accounts, daily spend on cards.
+  // ── Accounts, cards and owners ───────────────────────────────────────
+  // Real product instances, not bare card types (ADIB feedback): more than
+  // one account at the same bank with different card types, plus separate
+  // ownership — personal, a joint account, and a sole-proprietor business.
+  const OWNERS = [
+    { id: 'you',   name: 'You',                 short: 'Personal' },
+    { id: 'joint', name: 'Joint account',       short: 'Joint' },
+    { id: 'biz',   name: 'Al Noor Trading LLC', short: 'Business' },
+  ];
+  const PRODUCTS = [
+    { id: 'adib-cur',  bank: 'adib',    type: 'current', label: 'Current account',  mask: '•• 4021', owner: 'you' },
+    { id: 'adib-sav',  bank: 'adib',    type: 'savings', label: 'Savings account',  mask: '•• 7738', owner: 'you' },
+    { id: 'adib-deb',  bank: 'adib',    type: 'debit',   label: 'Visa Debit',       mask: '•• 2210', owner: 'you' },
+    { id: 'adib-cov',  bank: 'adib',    type: 'credit',  label: 'Covered Card',     mask: '•• 8402', owner: 'you' },
+    { id: 'fab-cur',   bank: 'fab',     type: 'current', label: 'Current account',  mask: '•• 8830', owner: 'you' },
+    { id: 'fab-cc',    bank: 'fab',     type: 'credit',  label: 'Cashback Card',    mask: '•• 5011', owner: 'you' },
+    { id: 'fab-joint', bank: 'fab',     type: 'current', label: 'Joint Current',    mask: '•• 6644', owner: 'joint' },
+    { id: 'enbd-cur',  bank: 'enbd',    type: 'current', label: 'Business Current', mask: '•• 1276', owner: 'biz' },
+    { id: 'enbd-deb',  bank: 'enbd',    type: 'debit',   label: 'Business Debit',   mask: '•• 3305', owner: 'biz' },
+    { id: 'mq-cur',    bank: 'mashreq', type: 'current', label: 'Current account',  mask: '•• 5544', owner: 'you' },
+    { id: 'mq-cc',     bank: 'mashreq', type: 'credit',  label: 'Credit Card',      mask: '•• 7208', owner: 'you' },
+    { id: 'cbd-cur',   bank: 'cbd',     type: 'current', label: 'Current account',  mask: '•• 9902', owner: 'you' },
+  ];
+  const PRODUCT_BY_ID = {}; PRODUCTS.forEach((p) => { PRODUCT_BY_ID[p.id] = p; });
+  const OWNER_BY_ID = {}; OWNERS.forEach((o) => { OWNER_BY_ID[o.id] = o; });
+
   const CARD_TYPES = [
     { id: 'all', label: 'All accounts & cards', short: 'All cards' },
     { id: 'current', label: 'Current account', short: 'Current' },
@@ -250,16 +273,35 @@
     { id: 'debit', label: 'Debit card', short: 'Debit card' },
     { id: 'credit', label: 'Credit card', short: 'Credit card' },
   ];
-  const BILL_CATS = new Set([9, 16, 17]); // Household, Loans, Insurance → paid from accounts
-  function assignType(bid, cid, name) {
+
+  // Each (bank, category, brand) bucket settles on ONE product — the way a
+  // person actually pays: bills from accounts, daily spend on cards, family
+  // staples on the joint account, everything at ENBD through the business.
+  const BILL_CATS = new Set([9, 16, 17]);   // Household, Loans, Insurance
+  const DAILY_CATS = new Set([6, 14]);      // Groceries, Transportation
+  const FAMILY_CATS = new Set([6, 9, 7]);   // joint-leaning at FAB
+  function assignProduct(bid, cid, name) {
     const r = rng(cid * 131 + name.length * 17 + bid.length * 29 + name.charCodeAt(0))();
-    if (BILL_CATS.has(cid)) return r < 0.7 ? 'current' : 'savings';
-    if (cid === 6 || cid === 14) return r < 0.7 ? 'debit' : 'credit'; // groceries, transport
-    return r < 0.62 ? 'credit' : 'debit';                             // lifestyle spend
+    if (bid === 'adib') {
+      if (BILL_CATS.has(cid)) return r < 0.75 ? 'adib-cur' : 'adib-sav';
+      if (DAILY_CATS.has(cid)) return r < 0.7 ? 'adib-deb' : 'adib-cov';
+      return r < 0.62 ? 'adib-cov' : 'adib-deb';
+    }
+    if (bid === 'fab') {
+      if (BILL_CATS.has(cid)) return r < 0.85 ? 'fab-joint' : 'fab-cur';
+      if (FAMILY_CATS.has(cid) || cid === 10) return r < 0.8 ? 'fab-joint' : 'fab-cc'; // family staples + dining
+      return r < 0.72 ? 'fab-cc' : 'fab-cur';
+    }
+    if (bid === 'enbd') return BILL_CATS.has(cid) || r >= 0.7 ? 'enbd-cur' : 'enbd-deb';
+    if (bid === 'mashreq') return BILL_CATS.has(cid) || r >= 0.7 ? 'mq-cur' : 'mq-cc';
+    return 'cbd-cur';
   }
   Object.keys(BANK_BRAND_MONTHLY).forEach((bid) => {
     const byCat = BANK_BRAND_MONTHLY[bid];
-    Object.keys(byCat).forEach((cidStr) => { byCat[cidStr].forEach((bm) => { bm.type = assignType(bid, Number(cidStr), bm.name); }); });
+    Object.keys(byCat).forEach((cidStr) => { byCat[cidStr].forEach((bm) => {
+      bm.product = assignProduct(bid, Number(cidStr), bm.name);
+      bm.type = PRODUCT_BY_ID[bm.product].type; // card-type filter keys off this
+    }); });
   });
 
   // The banks the CURRENT VIEW aggregates over: the linked set, or a single
@@ -268,14 +310,20 @@
   let LINKED = ['adib'];
   let ACTIVE = ['adib'];
   let ACTIVE_TYPE = 'all';
+  let ACTIVE_PRODUCT = 'all';  // one account/card instance
+  let ACTIVE_OWNER = 'all';    // you | joint | biz
   function setBanks(linked, active) {
     LINKED = linked && linked.length ? linked : ['adib'];
     ACTIVE = active && active.length ? active : LINKED;
   }
   function setCardType(t) { ACTIVE_TYPE = t || 'all'; }
+  function setProduct(p) { ACTIVE_PRODUCT = p || 'all'; }
+  function setOwner(o) { ACTIVE_OWNER = o || 'all'; }
   function eachActiveBucket(cid, fn) {
     ACTIVE.forEach((bid) => { ((BANK_BRAND_MONTHLY[bid] || {})[cid] || []).forEach((bm) => {
       if (ACTIVE_TYPE !== 'all' && bm.type !== ACTIVE_TYPE) return;
+      if (ACTIVE_PRODUCT !== 'all' && bm.product !== ACTIVE_PRODUCT) return;
+      if (ACTIVE_OWNER !== 'all' && PRODUCT_BY_ID[bm.product].owner !== ACTIVE_OWNER) return;
       fn(bm, bid);
     }); });
   }
@@ -296,6 +344,46 @@
     });
     return out;
   }
+  // Spend per product / owner / bank across the LINKED banks for a period —
+  // powers pickers, rankings and the Compare view. Ignores the active view
+  // filters (same contract as totalsByType).
+  function sumBuckets(period, keyFn) {
+    const n = monthsForPeriod(period);
+    const out = {};
+    CATEGORIES.forEach((c) => {
+      LINKED.forEach((bid) => {
+        ((BANK_BRAND_MONTHLY[bid] || {})[c.id] || []).forEach((bm) => {
+          let t = 0, k = 0;
+          for (let m = NUM_MONTHS - n; m < NUM_MONTHS; m++) { t += bm.months[m].amount; k += bm.months[m].count; }
+          if (!t) return;
+          const key = keyFn(bm, bid);
+          const e = out[key] || (out[key] = { total: 0, count: 0 });
+          e.total = r2(e.total + t); e.count += k;
+        });
+      });
+    });
+    return out;
+  }
+  // Every product at a linked bank appears, spend or not — a zero-spend
+  // savings account ranks honestly at the bottom instead of vanishing.
+  function totalsByProduct(period) {
+    const sums = sumBuckets(period, (bm) => bm.product);
+    return PRODUCTS.filter((p) => LINKED.includes(p.bank))
+      .map((p) => ({ product: p, total: (sums[p.id] || {}).total || 0, count: (sums[p.id] || {}).count || 0 }))
+      .sort((a, b) => b.total - a.total);
+  }
+  function totalsByOwner(period) {
+    const sums = sumBuckets(period, (bm) => PRODUCT_BY_ID[bm.product].owner);
+    return OWNERS.filter((o) => PRODUCTS.some((p) => p.owner === o.id && LINKED.includes(p.bank)))
+      .map((o) => ({ owner: o, total: (sums[o.id] || {}).total || 0, count: (sums[o.id] || {}).count || 0 }))
+      .sort((a, b) => b.total - a.total);
+  }
+  function totalsByBank(period) {
+    const sums = sumBuckets(period, (bm, bid) => bid);
+    return LINKED.map((bid) => ({ bank: BANKS.find((b) => b.id === bid), total: (sums[bid] || {}).total || 0, count: (sums[bid] || {}).count || 0 }))
+      .sort((a, b) => b.total - a.total);
+  }
+
   // Merge the active banks' buckets per brand (for aggregates & charts).
   function mergedBrandMonths(cid) {
     const map = new Map();
@@ -339,20 +427,21 @@
   }
 
   let tid = 1000;
-  function mk(merchant, amount, day, mLabel, mYear, bank, cardType) {
+  function mk(merchant, amount, day, mLabel, mYear, bank, productId) {
     const cid = MERCHANT_CAT[merchant] || 19;
     const cat = CATEGORIES.find((c) => c.id === cid);
-    return { id: ++tid, merchant, categoryId: cid, category: cat.name, categoryColor: cat.color, glyph: cat.glyph, amount, date: `${day} ${mLabel} ${mYear}`, day, month: mLabel, bank: bank || 'adib', cardType: cardType || 'debit' };
+    const p = PRODUCT_BY_ID[productId] || PRODUCT_BY_ID['adib-deb'];
+    return { id: ++tid, merchant, categoryId: cid, category: cat.name, categoryColor: cat.color, glyph: cat.glyph, amount, date: `${day} ${mLabel} ${mYear}`, day, month: mLabel, bank: bank || 'adib', product: p.id, cardType: p.type, owner: p.owner };
   }
   // Explode one (brand, month) bucket into individual transactions summing to `amount`.
-  function bucketTxns(name, cid, m, amount, count, bank, cardType) {
+  function bucketTxns(name, cid, m, amount, count, bank, productId) {
     const n = Math.min(Math.max(count, 1), 4);
     const r = rng(cid * 911 + m * 37 + name.length * 7 + 5 + (bank === 'fab' ? 131 : bank === 'enbd' ? 257 : 0));
     const out = []; let remaining = amount;
     for (let i = 0; i < n; i++) {
       const amt = i === n - 1 ? Math.max(2, r2(remaining)) : Math.max(3, r2((amount / n) * (0.6 + r() * 0.8)));
       remaining = r2(remaining - amt);
-      out.push(mk(name, amt, String(Math.floor(r() * 27) + 1).padStart(2, '0'), MONTH_LABELS[m], MONTH_YEAR[m], bank, cardType));
+      out.push(mk(name, amt, String(Math.floor(r() * 27) + 1).padStart(2, '0'), MONTH_LABELS[m], MONTH_YEAR[m], bank, productId));
     }
     return out;
   }
@@ -361,7 +450,7 @@
     const out = [];
     for (let m = end - 1; m >= start; m--) {
       const monthTxns = [];
-      CATEGORIES.forEach((c) => { eachActiveBucket(c.id, (bm, bid) => { const mm = bm.months[m]; if (mm.amount > 0) monthTxns.push(...bucketTxns(bm.name, c.id, m, mm.amount, mm.count, bid, bm.type)); }); });
+      CATEGORIES.forEach((c) => { eachActiveBucket(c.id, (bm, bid) => { const mm = bm.months[m]; if (mm.amount > 0) monthTxns.push(...bucketTxns(bm.name, c.id, m, mm.amount, mm.count, bid, bm.product)); }); });
       monthTxns.sort((a, b) => Number(b.day) - Number(a.day));
       out.push(...monthTxns);
       if (cap && out.length >= cap) break;
@@ -370,19 +459,19 @@
   }
   function txnsForCategory(cid, n) {
     const N = n || 1; const out = [];
-    for (let m = NUM_MONTHS - 1; m >= NUM_MONTHS - N; m--) { eachActiveBucket(cid, (bm, bid) => { const mm = bm.months[m]; if (mm.amount > 0) out.push(...bucketTxns(bm.name, cid, m, mm.amount, mm.count, bid, bm.type)); }); }
+    for (let m = NUM_MONTHS - 1; m >= NUM_MONTHS - N; m--) { eachActiveBucket(cid, (bm, bid) => { const mm = bm.months[m]; if (mm.amount > 0) out.push(...bucketTxns(bm.name, cid, m, mm.amount, mm.count, bid, bm.product)); }); }
     return out.slice(0, 80);
   }
   function txnsForBrand(cid, brandName, n) {
     const N = n || 1; const out = [];
     ACTIVE.forEach((bid) => {
       const bm = ((BANK_BRAND_MONTHLY[bid] || {})[cid] || []).find((x) => x.name === brandName); if (!bm) return;
-      for (let m = NUM_MONTHS - 1; m >= NUM_MONTHS - N; m--) { const mm = bm.months[m]; if (mm.amount > 0) out.push(...bucketTxns(brandName, cid, m, mm.amount, mm.count, bid, bm.type)); }
+      for (let m = NUM_MONTHS - 1; m >= NUM_MONTHS - N; m--) { const mm = bm.months[m]; if (mm.amount > 0) out.push(...bucketTxns(brandName, cid, m, mm.amount, mm.count, bid, bm.product)); }
     });
     return out.slice(0, 60);
   }
   function txnsForCategoryMonth(cid, monthIdx) {
-    const out = []; eachActiveBucket(cid, (bm, bid) => { const mm = bm.months[monthIdx]; if (mm.amount > 0) out.push(...bucketTxns(bm.name, cid, monthIdx, mm.amount, mm.count, bid, bm.type)); });
+    const out = []; eachActiveBucket(cid, (bm, bid) => { const mm = bm.months[monthIdx]; if (mm.amount > 0) out.push(...bucketTxns(bm.name, cid, monthIdx, mm.amount, mm.count, bid, bm.product)); });
     return out.sort((a, b) => Number(b.day) - Number(a.day));
   }
   function brandMonths(cid, brandName) {
@@ -442,6 +531,13 @@
     bankById: (id) => BANKS.find((b) => b.id === id) || MORE_BANKS.find((b) => b.id === id),
     // Account/card-type dimension
     CARD_TYPES, setCardType, cardType: () => ACTIVE_TYPE, totalsByType,
+    // Products (account/card instances) + owners
+    PRODUCTS, OWNERS,
+    productById: (id) => PRODUCT_BY_ID[id],
+    ownerById: (id) => OWNER_BY_ID[id],
+    setProduct, product: () => ACTIVE_PRODUCT,
+    setOwner, owner: () => ACTIVE_OWNER,
+    totalsByProduct, totalsByOwner, totalsByBank,
   };
 })();
 
@@ -2344,14 +2440,22 @@ function TxnDetailSheet({ T, txn, open, onClose, showLogos, onImprove }) {
               {txn.bank && <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 1, background: T.faint }} />}
             </div>
             {txn.bank && (() => {
-              const b = window.EXP_DATA.BANKS.find((x) => x.id === txn.bank);
-              const ct = (window.EXP_DATA.CARD_TYPES || []).find((x) => x.id === txn.cardType);
+              const D0 = window.EXP_DATA;
+              const b = D0.BANKS.find((x) => x.id === txn.bank);
+              const p = txn.product && D0.productById ? D0.productById(txn.product) : null;
+              const ct = (D0.CARD_TYPES || []).find((x) => x.id === txn.cardType);
+              const owner = p && p.owner !== 'you' && D0.ownerById ? D0.ownerById(p.owner) : null;
               return b ? (
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '13px 0' }}>
                   <span style={{ fontSize: 14.5, color: T.muted }}>Account</span>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
                     <BankAvatar bank={b} size={22} radius={6} />
-                    <span style={{ fontSize: 14.5, color: T.ink, fontWeight: 560 }}>{b.name}{ct ? ' ' + ct.label.toLowerCase() : ''} {b.mask}</span>
+                    <span style={{ minWidth: 0, textAlign: 'right' }}>
+                      <span style={{ display: 'block', fontSize: 14.5, color: T.ink, fontWeight: 560, whiteSpace: 'nowrap' }}>
+                        {b.abbr || b.name} · {p ? p.label : (ct ? ct.label.toLowerCase() : '')} {p ? p.mask : b.mask}
+                      </span>
+                      {owner && <span style={{ display: 'block', fontSize: 11.5, color: T.muted, marginTop: 1 }}>{owner.name}</span>}
+                    </span>
                   </span>
                 </div>
               ) : null;
