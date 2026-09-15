@@ -429,17 +429,17 @@
     ACTIVE_PRODUCT = scope.product || 'all';
     ACTIVE_OWNER = scope.owner || 'all';
     const m = NUM_MONTHS - 1;
-    const vals = [0, 0, 0, 0];
+    const vals = [0, 0, 0, 0, 0];
     CATEGORIES.forEach((c) => {
       if (cid && c.id !== cid) return;
       eachActiveBucket(c.id, (bm, bid) => {
         const mm = bm.months[m];
         if (mm.amount > 0) bucketTxns(bm.name, c.id, m, mm.amount, mm.count, bid, bm.product)
-          .forEach((t) => { vals[Math.min(3, Math.floor((Number(t.day) - 1) / 7))] += t.amount; });
+          .forEach((t) => { vals[Math.min(4, Math.floor((Number(t.day) - 1) / 7))] += t.amount; });
       });
     });
     ACTIVE = sA; ACTIVE_TYPE = sT; ACTIVE_PRODUCT = sP; ACTIVE_OWNER = sO;
-    return { labels: ['Week 1', 'Week 2', 'Week 3', 'Week 4'], vals: vals.map((v) => Math.round(v)) };
+    return { labels: ['Wk 1', 'Wk 2', 'Wk 3', 'Wk 4', 'Wk 5'], vals: vals.map((v) => Math.round(v)) };
   }
   // One brand's transactions under the same temporary scope — powers the
   // Compare page's brand tiles.
@@ -511,7 +511,7 @@
     for (let i = 0; i < n; i++) {
       const amt = i === n - 1 ? Math.max(2, r2(remaining)) : Math.max(3, r2((amount / n) * (0.6 + r() * 0.8)));
       remaining = r2(remaining - amt);
-      out.push(mk(name, amt, String(Math.floor(r() * 27) + 1).padStart(2, '0'), MONTH_LABELS[m], MONTH_YEAR[m], bank, productId));
+      out.push(mk(name, amt, String(Math.floor(r() * 30) + 1).padStart(2, '0'), MONTH_LABELS[m], MONTH_YEAR[m], bank, productId));
     }
     return out;
   }
@@ -3361,7 +3361,6 @@ function ComparePage({ T, showLogos, period, actions, dim: dim0, a: a0, b: b0, o
   const [dim, setDim] = React.useState(dim0 || 'bank');
   const [keys, setKeys] = React.useState([a0, b0]);
   const [picker, setPicker] = React.useState(null); // null | 0 | 1
-  const [openCat, setOpenCat] = React.useState(null); // inline-expanded category
   const SIDE_COLORS = ['#009EE3', '#8C704B'];
   // Months shown in the charts = the calendar months the selected range covers.
   const { start: mStart, end: mEnd } = D0.monthRangeForPeriod(period);
@@ -3385,7 +3384,6 @@ function ComparePage({ T, showLogos, period, actions, dim: dim0, a: a0, b: b0, o
 
   const pickDim = (d) => {
     setDim(d);
-    setOpenCat(null);
     const list = d === 'bank' ? D0.totalsByBank(period) : d === 'product' ? D0.totalsByProduct(period) : D0.totalsByOwner(period);
     const ks = list.map((x) => (d === 'bank' ? x.bank.id : d === 'product' ? x.product.id : x.owner.id));
     setKeys([ks[0], ks[1] || ks[0]]);
@@ -3467,74 +3465,32 @@ function ComparePage({ T, showLogos, period, actions, dim: dim0, a: a0, b: b0, o
           </div>
         </Card>
 
-        {/* Category-by-category — tapping expands the trend INLINE (Dennis:
-            never route away to Category trends from here). */}
-        <SectionTitle T={T}>By category</SectionTitle>
+        {/* Top categories — plain dual-bar rows, nothing hidden behind taps. */}
+        <SectionTitle T={T}>Top categories</SectionTitle>
         <Card T={T} pad="4px 18px">
-          {catRows.map(({ cat, vals }, i, arr) => {
-            const expanded = openCat === cat.id;
-            let inline = null;
-            if (expanded) {
-              let vA, vB, lbl;
-              if (weekly) {
-                const wA = D0.scopedWeeklyTotals(scopeFor(keys[0]), cat.id);
-                const wB = D0.scopedWeeklyTotals(scopeFor(keys[1]), cat.id);
-                vA = wA.vals; vB = wB.vals; lbl = wA.labels;
-              } else {
-                const mA = D0.scopedCategoryMonths(scopeFor(keys[0]), cat.id);
-                const mB = D0.scopedCategoryMonths(scopeFor(keys[1]), cat.id);
-                vA = mA.vals.slice(mStart, mEnd); vB = mB.vals.slice(mStart, mEnd); lbl = mA.labels.slice(mStart, mEnd);
-              }
-              const mx = Math.max(1, ...vA, ...vB);
-              inline = (
-                <div style={{ padding: '2px 0 12px 46px', animation: 'popIn .3s var(--ease-out) both' }}>
-                  <div style={{ display: 'flex', alignItems: 'flex-end', gap: 5, height: 64 }}>
-                    {vA.map((a, m) => (
-                      <div key={m} style={{ flex: 1, display: 'flex', alignItems: 'flex-end', gap: 2, height: '100%' }}>
-                        <div style={{ flex: 1, borderRadius: 2.5, background: SIDE_COLORS[0], height: `${Math.max(3, (a / mx) * 100)}%` }} />
-                        <div style={{ flex: 1, borderRadius: 2.5, background: SIDE_COLORS[1], height: `${Math.max(3, (vB[m] / mx) * 100)}%` }} />
-                      </div>
-                    ))}
-                  </div>
-                  <div style={{ display: 'flex', gap: 5, marginTop: 5 }}>
-                    {lbl.map((l, m) => (
-                      <div key={m} style={{ flex: 1, textAlign: 'center', fontSize: 9, fontWeight: 600, color: T.muted }}>{mCount > 6 && m % 2 === 1 ? '' : l}</div>
-                    ))}
-                  </div>
+          {catRows.map(({ cat, vals }, i, arr) => (
+            <div key={cat.id} style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 12, padding: '11px 0' }}>
+              <CategoryMark glyph={cat.glyph} color={cat.color} dark={T.dark} size={34} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
+                  <span style={{ fontSize: 14, fontWeight: 600, color: T.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{cat.name}</span>
+                  <span style={{ fontSize: 12.5, fontWeight: 620, fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>
+                    <span style={{ color: SIDE_COLORS[0] }}>{fmtAED(vals[0])}</span>
+                    <span style={{ color: T.muted, fontWeight: 500 }}> vs </span>
+                    <span style={{ color: SIDE_COLORS[1] }}>{fmtAED(vals[1])}</span>
+                  </span>
                 </div>
-              );
-            }
-            return (
-              <div key={cat.id} style={{ position: 'relative' }}>
-                <button className="pressable-row" onClick={() => setOpenCat(expanded ? null : cat.id)} style={{
-                  display: 'flex', alignItems: 'center', gap: 12, width: '100%', padding: '11px 0',
-                  border: 'none', background: 'transparent', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left',
-                }}>
-                  <CategoryMark glyph={cat.glyph} color={cat.color} dark={T.dark} size={34} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
-                      <span style={{ fontSize: 14, fontWeight: 600, color: T.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{cat.name}</span>
-                      <span style={{ fontSize: 12.5, fontWeight: 620, fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>
-                        <span style={{ color: SIDE_COLORS[0] }}>{fmtAED(vals[0])}</span>
-                        <span style={{ color: T.muted, fontWeight: 500 }}> vs </span>
-                        <span style={{ color: SIDE_COLORS[1] }}>{fmtAED(vals[1])}</span>
-                      </span>
+                <div style={{ display: 'grid', gap: 3, marginTop: 7 }}>
+                  {[0, 1].map((si) => (
+                    <div key={si} style={{ height: 4, borderRadius: 999, background: hexA(SIDE_COLORS[si], T.dark ? 0.2 : 0.12), overflow: 'hidden' }}>
+                      <div style={{ height: '100%', width: `${Math.round((vals[si] / maxCat) * 100)}%`, background: SIDE_COLORS[si], borderRadius: 999 }} />
                     </div>
-                    <div style={{ display: 'grid', gap: 3, marginTop: 7 }}>
-                      {[0, 1].map((si) => (
-                        <div key={si} style={{ height: 4, borderRadius: 999, background: hexA(SIDE_COLORS[si], T.dark ? 0.2 : 0.12), overflow: 'hidden' }}>
-                          <div style={{ height: '100%', width: `${Math.round((vals[si] / maxCat) * 100)}%`, background: SIDE_COLORS[si], borderRadius: 999 }} />
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                  <UIIcon name="chevD" size={14} stroke={T.muted} />
-                </button>
-                {inline}
-                {i < arr.length - 1 && <div style={{ position: 'absolute', left: 46, right: 0, bottom: 0, height: 1, background: T.faint }} />}
+                  ))}
+                </div>
               </div>
-            );
-          })}
+              {i < arr.length - 1 && <div style={{ position: 'absolute', left: 46, right: 0, bottom: 0, height: 1, background: T.faint }} />}
+            </div>
+          ))}
         </Card>
 
         {/* Top brands — one horizontal rail per side; the rail scrolls, the
