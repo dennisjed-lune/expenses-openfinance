@@ -403,10 +403,34 @@
     const prevTotal = pe > ps ? aggregate(ps, pe).total : null;
     const monthly = monthlyTotals();
     const brands = [];
-    cur.cats.forEach((c) => c.brands.forEach((b) => brands.push({ ...b, catColor: c.color, glyph: c.glyph })));
+    cur.cats.forEach((c) => c.brands.forEach((b) => brands.push({ ...b, catId: c.id, catName: c.name, catColor: c.color, glyph: c.glyph })));
     brands.sort((a, b) => b.total - a.total);
     ACTIVE = sA; ACTIVE_TYPE = sT; ACTIVE_PRODUCT = sP; ACTIVE_OWNER = sO;
     return { cats: cur.cats, total: cur.total, prevTotal, monthly, brands: brands.slice(0, 10), count: cur.cats.reduce((s, c) => s + c.count, 0) };
+  }
+  // One category's per-month series under the same temporary scope — powers
+  // the Compare page's inline category trend.
+  function scopedCategoryMonths(scope, cid) {
+    const sA = ACTIVE, sT = ACTIVE_TYPE, sP = ACTIVE_PRODUCT, sO = ACTIVE_OWNER;
+    ACTIVE = scope.bank ? [scope.bank] : LINKED;
+    ACTIVE_TYPE = 'all';
+    ACTIVE_PRODUCT = scope.product || 'all';
+    ACTIVE_OWNER = scope.owner || 'all';
+    const out = categoryMonths(cid);
+    ACTIVE = sA; ACTIVE_TYPE = sT; ACTIVE_PRODUCT = sP; ACTIVE_OWNER = sO;
+    return out;
+  }
+  // One brand's transactions under the same temporary scope — powers the
+  // Compare page's brand tiles.
+  function scopedBrandTxns(period, scope, cid, name) {
+    const sA = ACTIVE, sT = ACTIVE_TYPE, sP = ACTIVE_PRODUCT, sO = ACTIVE_OWNER;
+    ACTIVE = scope.bank ? [scope.bank] : LINKED;
+    ACTIVE_TYPE = 'all';
+    ACTIVE_PRODUCT = scope.product || 'all';
+    ACTIVE_OWNER = scope.owner || 'all';
+    const out = txnsForBrand(cid, name, monthsForPeriod(period));
+    ACTIVE = sA; ACTIVE_TYPE = sT; ACTIVE_PRODUCT = sP; ACTIVE_OWNER = sO;
+    return out;
   }
 
   // Merge the active banks' buckets per brand (for aggregates & charts).
@@ -562,7 +586,7 @@
     ownerById: (id) => OWNER_BY_ID[id],
     setProduct, product: () => ACTIVE_PRODUCT,
     setOwner, owner: () => ACTIVE_OWNER,
-    totalsByProduct, totalsByOwner, totalsByBank, rankBy, compareSide,
+    totalsByProduct, totalsByOwner, totalsByBank, rankBy, compareSide, scopedBrandTxns, scopedCategoryMonths,
   };
 })();
 
@@ -2124,8 +2148,11 @@ function Sheet({ T, open, onClose, children, title, height = 'auto', z = 200 }) 
       <div style={{
         position: 'absolute', left: 0, right: 0, bottom: 0, background: T.bg,
         borderTopLeftRadius: 28, borderTopRightRadius: 28, maxHeight: '88%', height,
-        transform: open ? 'translateY(0)' : 'translateY(102%)',
-        transition: 'transform .42s cubic-bezier(.22,1,.36,1)',
+        transform: open ? 'translateY(0)' : 'translateY(110%)',
+        // Parked sheets go fully invisible once the slide-out ends — their
+        // rounded top + shadow must never peek above the screen's bottom edge.
+        visibility: open ? 'visible' : 'hidden',
+        transition: `transform .42s cubic-bezier(.22,1,.36,1), visibility 0s linear ${open ? '0s' : '.45s'}`,
         display: 'flex', flexDirection: 'column', overflow: 'hidden',
         boxShadow: '0 -10px 40px rgba(0,0,0,0.25)',
       }}>
@@ -3301,7 +3328,9 @@ function ComparePage({ T, showLogos, period, actions, dim: dim0, a: a0, b: b0, o
   const [dim, setDim] = React.useState(dim0 || 'bank');
   const [keys, setKeys] = React.useState([a0, b0]);
   const [picker, setPicker] = React.useState(null); // null | 0 | 1
+  const [openCat, setOpenCat] = React.useState(null); // inline-expanded category
   const SIDE_COLORS = ['#009EE3', '#8C704B'];
+  const nMonths = D0.monthsForPeriod(period);
 
   // Every entity of the current dimension, for the slot pickers.
   const entities = React.useMemo(() => {
@@ -3314,6 +3343,7 @@ function ComparePage({ T, showLogos, period, actions, dim: dim0, a: a0, b: b0, o
 
   const pickDim = (d) => {
     setDim(d);
+    setOpenCat(null);
     const list = d === 'bank' ? D0.totalsByBank(period) : d === 'product' ? D0.totalsByProduct(period) : D0.totalsByOwner(period);
     const ks = list.map((x) => (d === 'bank' ? x.bank.id : d === 'product' ? x.product.id : x.owner.id));
     setKeys([ks[0], ks[1] || ks[0]]);
@@ -3332,7 +3362,6 @@ function ComparePage({ T, showLogos, period, actions, dim: dim0, a: a0, b: b0, o
   }));
   const catRows = [...catMap.values()].sort((x, y) => (y.vals[0] + y.vals[1]) - (x.vals[0] + x.vals[1])).slice(0, 8);
   const maxCat = Math.max(1, ...catRows.map((r) => Math.max(r.vals[0], r.vals[1])));
-  const maxMonth = Math.max(1, ...sides[0].data.monthly.vals, ...sides[1].data.monthly.vals);
 
   const slotChip = (si) => {
     const { ent } = sides[si];
@@ -3396,35 +3425,68 @@ function ComparePage({ T, showLogos, period, actions, dim: dim0, a: a0, b: b0, o
           </div>
         </Card>
 
-        {/* Category-by-category — taps through to Category trends */}
+        {/* Category-by-category — tapping expands the trend INLINE (Dennis:
+            never route away to Category trends from here). */}
         <SectionTitle T={T}>By category</SectionTitle>
         <Card T={T} pad="4px 18px">
-          {catRows.map(({ cat, vals }, i, arr) => (
-            <button key={cat.id} className="pressable-row" onClick={() => actions.openCategory(cat.id)} style={{
-              display: 'flex', alignItems: 'center', gap: 12, width: '100%', padding: '11px 0', position: 'relative',
-              border: 'none', background: 'transparent', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left',
-            }}>
-              <CategoryMark glyph={cat.glyph} color={cat.color} dark={T.dark} size={34} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
-                  <span style={{ fontSize: 14, fontWeight: 600, color: T.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{cat.name}</span>
-                  <span style={{ fontSize: 12.5, fontWeight: 620, fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>
-                    <span style={{ color: SIDE_COLORS[0] }}>{fmtAED(vals[0])}</span>
-                    <span style={{ color: T.muted, fontWeight: 500 }}> vs </span>
-                    <span style={{ color: SIDE_COLORS[1] }}>{fmtAED(vals[1])}</span>
-                  </span>
+          {catRows.map(({ cat, vals }, i, arr) => {
+            const expanded = openCat === cat.id;
+            let inline = null;
+            if (expanded && nMonths > 1) {
+              const mA = D0.scopedCategoryMonths(scopeFor(keys[0]), cat.id);
+              const mB = D0.scopedCategoryMonths(scopeFor(keys[1]), cat.id);
+              const start = mA.vals.length - nMonths;
+              const vA = mA.vals.slice(start), vB = mB.vals.slice(start), lbl = mA.labels.slice(start);
+              const mx = Math.max(1, ...vA, ...vB);
+              inline = (
+                <div style={{ padding: '2px 0 12px 46px', animation: 'popIn .3s var(--ease-out) both' }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-end', gap: 5, height: 64 }}>
+                    {vA.map((a, m) => (
+                      <div key={m} style={{ flex: 1, display: 'flex', alignItems: 'flex-end', gap: 2, height: '100%' }}>
+                        <div style={{ flex: 1, borderRadius: 2.5, background: SIDE_COLORS[0], height: `${Math.max(3, (a / mx) * 100)}%` }} />
+                        <div style={{ flex: 1, borderRadius: 2.5, background: SIDE_COLORS[1], height: `${Math.max(3, (vB[m] / mx) * 100)}%` }} />
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{ display: 'flex', gap: 5, marginTop: 5 }}>
+                    {lbl.map((l, m) => (
+                      <div key={m} style={{ flex: 1, textAlign: 'center', fontSize: 9, fontWeight: 600, color: T.muted }}>{nMonths > 6 && m % 2 === 1 ? '' : l}</div>
+                    ))}
+                  </div>
                 </div>
-                <div style={{ display: 'grid', gap: 3, marginTop: 7 }}>
-                  {[0, 1].map((si) => (
-                    <div key={si} style={{ height: 4, borderRadius: 999, background: hexA(SIDE_COLORS[si], T.dark ? 0.2 : 0.12), overflow: 'hidden' }}>
-                      <div style={{ height: '100%', width: `${Math.round((vals[si] / maxCat) * 100)}%`, background: SIDE_COLORS[si], borderRadius: 999 }} />
+              );
+            }
+            return (
+              <div key={cat.id} style={{ position: 'relative' }}>
+                <button className="pressable-row" onClick={() => nMonths > 1 && setOpenCat(expanded ? null : cat.id)} style={{
+                  display: 'flex', alignItems: 'center', gap: 12, width: '100%', padding: '11px 0',
+                  border: 'none', background: 'transparent', cursor: nMonths > 1 ? 'pointer' : 'default', fontFamily: 'inherit', textAlign: 'left',
+                }}>
+                  <CategoryMark glyph={cat.glyph} color={cat.color} dark={T.dark} size={34} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
+                      <span style={{ fontSize: 14, fontWeight: 600, color: T.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{cat.name}</span>
+                      <span style={{ fontSize: 12.5, fontWeight: 620, fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>
+                        <span style={{ color: SIDE_COLORS[0] }}>{fmtAED(vals[0])}</span>
+                        <span style={{ color: T.muted, fontWeight: 500 }}> vs </span>
+                        <span style={{ color: SIDE_COLORS[1] }}>{fmtAED(vals[1])}</span>
+                      </span>
                     </div>
-                  ))}
-                </div>
+                    <div style={{ display: 'grid', gap: 3, marginTop: 7 }}>
+                      {[0, 1].map((si) => (
+                        <div key={si} style={{ height: 4, borderRadius: 999, background: hexA(SIDE_COLORS[si], T.dark ? 0.2 : 0.12), overflow: 'hidden' }}>
+                          <div style={{ height: '100%', width: `${Math.round((vals[si] / maxCat) * 100)}%`, background: SIDE_COLORS[si], borderRadius: 999 }} />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  {nMonths > 1 && <UIIcon name="chevD" size={14} stroke={T.muted} />}
+                </button>
+                {inline}
+                {i < arr.length - 1 && <div style={{ position: 'absolute', left: 46, right: 0, bottom: 0, height: 1, background: T.faint }} />}
               </div>
-              {i < arr.length - 1 && <div style={{ position: 'absolute', left: 46, right: 0, bottom: 0, height: 1, background: T.faint }} />}
-            </button>
-          ))}
+            );
+          })}
         </Card>
 
         {/* Top brands — one horizontal rail per side; the rail scrolls, the
@@ -3442,11 +3504,14 @@ function ComparePage({ T, showLogos, period, actions, dim: dim0, a: a0, b: b0, o
                 : (
                   <div className="h-scroll" style={{ display: 'flex', gap: 8, padding: '0 16px 2px' }}>
                     {data.brands.map((b) => (
-                      <div key={b.name} style={{ flexShrink: 0, width: 84, padding: '10px 6px', borderRadius: 13, background: T.dark ? 'rgba(255,255,255,0.05)' : 'rgba(7,3,18,0.033)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+                      <button key={b.name} className="pressable"
+                        onClick={() => actions.openTxnList({ title: b.name, subtitle: `${ent.name} · ${b.count} transaction${b.count === 1 ? '' : 's'}`, total: b.total, txns: D0.scopedBrandTxns(period, scopeFor(keys[si]), b.catId, b.name) })}
+                        style={{ flexShrink: 0, width: 84, padding: '10px 6px', borderRadius: 13, border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+                          background: T.dark ? 'rgba(255,255,255,0.05)' : 'rgba(7,3,18,0.033)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
                         <MerchantMark name={b.name} glyph={b.glyph} catColor={b.catColor} showLogos={showLogos} dark={T.dark} size={32} radius={9} />
                         <span style={{ maxWidth: 72, fontSize: 10.5, fontWeight: 600, color: T.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{b.name}</span>
                         <span style={{ fontSize: 10.5, fontWeight: 620, color: T.muted, fontVariantNumeric: 'tabular-nums' }}><Dirham size={9} color="currentColor" style={{ marginRight: 2 }} />{fmtAED(b.total)}</span>
-                      </div>
+                      </button>
                     ))}
                   </div>
                 )}
@@ -3454,26 +3519,35 @@ function ComparePage({ T, showLogos, period, actions, dim: dim0, a: a0, b: b0, o
           ))}
         </Card>
 
-        {/* Month-by-month, both series */}
-        <SectionTitle T={T}>Last 12 months</SectionTitle>
-        <Card T={T} pad={18}>
-          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, height: 110 }}>
-            {sides[0].data.monthly.vals.map((vA, m) => {
-              const vB = sides[1].data.monthly.vals[m];
-              return (
-                <div key={m} style={{ flex: 1, display: 'flex', alignItems: 'flex-end', gap: 2, height: '100%' }}>
-                  <div style={{ flex: 1, borderRadius: 3, background: SIDE_COLORS[0], height: `${Math.max(2, (vA / maxMonth) * 100)}%` }} />
-                  <div style={{ flex: 1, borderRadius: 3, background: SIDE_COLORS[1], height: `${Math.max(2, (vB / maxMonth) * 100)}%` }} />
+        {/* Month-by-month, both series — only the months inside the selected
+            period (Dennis: never show 12 months when 1 was chosen). */}
+        {nMonths > 1 && (() => {
+          const start = sides[0].data.monthly.vals.length - nMonths;
+          const vAs = sides[0].data.monthly.vals.slice(start);
+          const vBs = sides[1].data.monthly.vals.slice(start);
+          const lbls = sides[0].data.monthly.labels.slice(start);
+          const mx = Math.max(1, ...vAs, ...vBs);
+          return (
+            <div>
+              <SectionTitle T={T}>Last {nMonths} months</SectionTitle>
+              <Card T={T} pad={18}>
+                <div style={{ display: 'flex', alignItems: 'flex-end', gap: nMonths > 6 ? 4 : 10, height: 110 }}>
+                  {vAs.map((vA, m) => (
+                    <div key={m} style={{ flex: 1, display: 'flex', alignItems: 'flex-end', gap: 2, height: '100%' }}>
+                      <div style={{ flex: 1, borderRadius: 3, background: SIDE_COLORS[0], height: `${Math.max(2, (vA / mx) * 100)}%` }} />
+                      <div style={{ flex: 1, borderRadius: 3, background: SIDE_COLORS[1], height: `${Math.max(2, (vBs[m] / mx) * 100)}%` }} />
+                    </div>
+                  ))}
                 </div>
-              );
-            })}
-          </div>
-          <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
-            {sides[0].data.monthly.labels.map((l, m) => (
-              <div key={m} style={{ flex: 1, textAlign: 'center', fontSize: 8.5, fontWeight: 600, color: T.muted }}>{m % 2 === 0 ? l : ''}</div>
-            ))}
-          </div>
-        </Card>
+                <div style={{ display: 'flex', gap: nMonths > 6 ? 4 : 10, marginTop: 6 }}>
+                  {lbls.map((l, m) => (
+                    <div key={m} style={{ flex: 1, textAlign: 'center', fontSize: 8.5, fontWeight: 600, color: T.muted }}>{nMonths > 6 && m % 2 === 1 ? '' : l}</div>
+                  ))}
+                </div>
+              </Card>
+            </div>
+          );
+        })()}
       </div>
 
       {/* Slot picker */}
