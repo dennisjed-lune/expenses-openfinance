@@ -2503,7 +2503,7 @@ function WalletIcon({ size = 18, stroke, sw = 1.8 }) {
 //    single tap opens that category — no reveal-then-open double tap.
 function SpendRing({ data, total, prevTotal, dark, ink, muted, surface, onSlice }) {
   const [hover, setHover] = React.useState(null);
-  const W = 338, H = 244, cx = W / 2, cy = 118, R = 74, stroke = 20, gapDeg = 4;
+  const W = 338, H = 200, cx = W / 2, cy = 100, R = 74, stroke = 20, gapDeg = 4;
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
   const sorted = [...data].sort((a, b) => b.total - a.total);
@@ -2547,34 +2547,33 @@ function SpendRing({ data, total, prevTotal, dark, ink, muted, surface, onSlice 
         </div>
       </div>
 
-      {/* on-ring NAME + % labels — quadrant-anchored, width-clamped, single tap opens */}
-      {segs.map((s) => {
-        const [bx, by] = polar(R, s.mid);
-        const a = (s.mid - 90) * Math.PI / 180;
-        const c = Math.cos(a), si = Math.sin(a);
-        const dim = hover != null && hover !== s.id;
-        const gap = stroke / 2 + 8;
-        let style, mw, justify;
-        if (c > 0.34) { mw = clamp(W - (bx + gap) - 2, 52, 112); style = { left: bx + gap, top: by, transform: 'translateY(-50%)' }; justify = 'flex-start'; }
-        else if (c < -0.34) { mw = clamp((bx - gap) - 2, 52, 112); style = { right: W - (bx - gap), top: by, transform: 'translateY(-50%)' }; justify = 'flex-end'; }
-        else { mw = 108; justify = 'center'; const [lx, ly] = polar(R + gap, s.mid); style = { left: lx, top: ly, transform: `translateX(-50%) ${si < 0 ? 'translateY(-100%)' : ''}` }; }
-        return (
-          <div key={'l' + s.id} className="pressable" onClick={() => open(s)}
-            onMouseEnter={() => setHover(s.id)} onMouseLeave={() => setHover(null)}
-            style={{ position: 'absolute', ...style, width: mw, display: 'flex', alignItems: 'baseline', gap: 4, justifyContent: justify, cursor: 'pointer', opacity: dim ? 0.4 : 1, transition: 'opacity .2s' }}>
-            <span style={{ fontSize: 10.5, fontWeight: 640, color: ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{s.name}</span>
-            <span style={{ fontSize: 10, fontWeight: 600, color: muted, flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>{s.pct}%</span>
-          </div>
-        );
-      })}
     </div>
+
     {delta != null && (
-      <div style={{ display: 'flex', justifyContent: 'center', marginTop: -6 }}>
+      <div style={{ display: 'flex', justifyContent: 'center', marginTop: -4 }}>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 11px', borderRadius: 999, fontSize: 12, fontWeight: 640, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', color: up ? T_POS_INK(dark) : T_NEG_INK(dark), background: up ? T_POS_BG(dark) : T_NEG_BG(dark) }}>
           <UIIcon name={up ? 'arrowUp' : 'arrowDn'} size={12} stroke="currentColor" />{Math.abs(delta)}% vs last period
         </span>
       </div>
     )}
+
+    {/* Legend grid — ADIB feedback: keep axes aligned. Dots share one column
+        axis, names one text axis, percentages one right axis; nothing is
+        angle-scattered around the ring and no name ever truncates. */}
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 22, rowGap: 9, padding: '16px 8px 2px' }}>
+      {segs.map((s) => {
+        const dim = hover != null && hover !== s.id;
+        return (
+          <div key={'l' + s.id} className="pressable" onClick={() => open(s)}
+            onMouseEnter={() => setHover(s.id)} onMouseLeave={() => setHover(null)}
+            style={{ display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer', opacity: dim ? 0.4 : 1, transition: 'opacity .2s', minWidth: 0 }}>
+            <span style={{ width: 7, height: 7, borderRadius: 999, background: s.color, flexShrink: 0 }} />
+            <span style={{ fontSize: 11.5, fontWeight: 640, color: ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{s.name}</span>
+            <span style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 600, color: muted, flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>{s.pct}%</span>
+          </div>
+        );
+      })}
+    </div>
     </div>
   );
 }
@@ -3088,7 +3087,7 @@ function AllTxnsSheet({ T, open, onClose, showLogos, period, onTxn, z }) {
   );
 }
 
-Object.assign(window, { Spends, RawTransactions, LuneToggle, BreakdownSheet, TrendsPage, CategoryPickerSheet, CategoryDropdown, AllTxnsSheet, TrendButton, WalletIcon });
+Object.assign(window, { Spends, RawTransactions, LuneToggle, BreakdownSheet, TrendsPage, CategoryPickerSheet, CategoryDropdown, AllTxnsSheet, WalletIcon });
 
 </script>
 
