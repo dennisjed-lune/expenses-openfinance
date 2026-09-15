@@ -3011,12 +3011,15 @@ function Spends({ T, showLogos, period, actions, enriched, onToggle, of }) {
   return (
     <Screen T={T}>
       <AppHeader T={T} title="Spends" right={accountsBtn} />
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 14 }}>
-        <PeriodPill T={T} period={period} onClick={actions.openPeriod} inline />
-        <CardTypePill T={T} value={of.cardType} product={of.product} owner={of.owner} onClick={of.openCardType} />
+      {/* Filters stay LOCKED: the title scrolls away, this block pins just
+          below the status bar and the content scrolls underneath it. */}
+      <div style={{ position: 'sticky', top: 0, zIndex: 5, background: T.bg, margin: '0 -18px', padding: '10px 18px 10px', boxShadow: `0 1px 0 ${T.faint}` }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <PeriodPill T={T} period={period} onClick={actions.openPeriod} inline />
+          <CardTypePill T={T} value={of.cardType} product={of.product} owner={of.owner} onClick={of.openCardType} />
+        </div>
+        <BankChips T={T} linked={of.linked} filter={of.filter} onFilter={of.setFilter} />
       </div>
-
-      <BankChips T={T} linked={of.linked} filter={of.filter} onFilter={of.setFilter} />
       {staleBank && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: '#B07D18', margin: '10px 2px 0' }}>
           <span style={{ width: 6, height: 6, borderRadius: 999, background: '#E0A63A', flexShrink: 0 }} />
@@ -4155,6 +4158,9 @@ function ExpensesApp() {
           <div className="exp-screens" style={{ height: '100%', overflowY: 'auto', overflowX: 'hidden', paddingTop: 56 }}>
             <Spends T={T} showLogos={t.showLogos} period={period} actions={actions} of={of} />
           </div>
+          {/* Opaque strip behind the (transparent) status bar so scrolling
+              content disappears under it instead of colliding with the time. */}
+          <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 56, background: T.bg, zIndex: 6, pointerEvents: 'none' }} />
 
           {/* Sheet stack — z-order matches how they open on top of one another. */}
           <React.Fragment>
