@@ -178,7 +178,7 @@
   const BANKS = [
     { id: 'adib', name: 'ADIB', abbr: 'ADIB', full: 'Abu Dhabi Islamic Bank', color: '#003978', mask: '•• 4021', host: true, fresh: 'Live · host bank' },
     { id: 'fab',  name: 'FAB', abbr: 'FAB', full: 'First Abu Dhabi Bank', color: '#0B2E5B', mask: '•• 8830', fresh: 'Synced just now' },
-    { id: 'enbd', name: 'Emirates NBD', abbr: 'ENBD', full: 'Emirates NBD', color: '#28427E', mask: '•• 1276', fresh: 'Synced 3 days ago', stale: true },
+    { id: 'enbd', name: 'Emirates NBD', abbr: 'ENBD', full: 'Emirates NBD', color: '#28427E', mask: '•• 1276', fresh: 'Synced 1 h ago' },
     { id: 'mashreq', name: 'Mashreq', abbr: 'MQ', full: 'Mashreq Bank', color: '#E24A12', mask: '•• 5544', fresh: 'Synced just now' },
     { id: 'cbd', name: 'CBD', abbr: 'CBD', full: 'Commercial Bank of Dubai', color: '#1E3160', mask: '•• 9902', fresh: 'Synced 1 h ago' },
   ];
@@ -248,8 +248,8 @@
   // with separate ownership (the wife's). ADIB lets added accounts carry a
   // NICKNAME — where one exists it is the display name, mask kept.
   const OWNERS = [
-    { id: 'you',  name: 'You',  short: 'Mine' },
-    { id: 'wife', name: 'Wife', short: 'Wife' },
+    { id: 'you',  name: 'Primary', short: 'Primary' },
+    { id: 'wife', name: 'Partner', short: 'Partner' },
   ];
   // One product per bank per owner (Dennis 2026-09-15: fewer accounts).
   // You: ADIB current + ENBD credit + Mashreq debit. Wife: ADIB current +
@@ -261,8 +261,8 @@
     { id: 'adib-you',  bank: 'adib',    type: 'current', label: 'Current account', mask: '•• 4021', owner: 'you', balance: 18450.22 },
     { id: 'enbd-you',  bank: 'enbd',    type: 'credit',  label: 'Credit Card',     mask: '•• 1276', owner: 'you', nickname: 'Travel card' },
     { id: 'mq-you',    bank: 'mashreq', type: 'debit',   label: 'Debit Card',      mask: '•• 5544', owner: 'you', balance: 9320.10 },
-    { id: 'adib-wife', bank: 'adib',    type: 'current', label: 'Current account', mask: '•• 7738', owner: 'wife', nickname: "Wife's ADIB", balance: 12880.45 },
-    { id: 'fab-wife',  bank: 'fab',     type: 'credit',  label: 'Credit Card',     mask: '•• 6644', owner: 'wife', nickname: "Wife's FAB" },
+    { id: 'adib-wife', bank: 'adib',    type: 'current', label: 'Current account', mask: '•• 7738', owner: 'wife', nickname: "Partner's ADIB", balance: 12880.45 },
+    { id: 'fab-wife',  bank: 'fab',     type: 'credit',  label: 'Credit Card',     mask: '•• 6644', owner: 'wife', nickname: "Partner's FAB" },
     { id: 'cbd-wife',  bank: 'cbd',     type: 'debit',   label: 'Debit Card',      mask: '•• 9902', owner: 'wife', balance: 3652.30 },
   ];
   const PRODUCT_BY_ID = {}; PRODUCTS.forEach((p) => { PRODUCT_BY_ID[p.id] = p; });
@@ -2999,8 +2999,6 @@ function Spends({ T, showLogos, period, actions, enriched, onToggle, of }) {
   const prevTotal = scoped.hasPrev ? scoped.prevTotal : null;
   const topCats = [...CATEGORY_SPEND].sort((a, b) => b.total - a.total).slice(0, 5);
   const multi = of.linked.length > 1;
-  // A stale external bank in view degrades VISIBLY, never silently.
-  const staleBank = D().BANKS.find((b) => b.stale && of.linked.includes(b.id) && (of.filter === 'all' || of.filter === b.id));
   const accountsBtn = (
     <button className="pressable" onClick={of.openAccounts} aria-label="Linked accounts" style={{
       position: 'relative', width: 38, height: 38, borderRadius: 12, flexShrink: 0, cursor: 'pointer',
@@ -3027,12 +3025,6 @@ function Spends({ T, showLogos, period, actions, enriched, onToggle, of }) {
         </div>
         <BankChips T={T} linked={of.linked} filter={of.filter} onFilter={of.setFilter} />
       </div>
-      {staleBank && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: '#B07D18', margin: '10px 2px 0' }}>
-          <span style={{ width: 6, height: 6, borderRadius: 999, background: '#E0A63A', flexShrink: 0 }} />
-          {staleBank.name} last synced 3 days ago — recent transactions may be missing.
-        </div>
-      )}
 
       {/* Empty state — a filter combo with no spend degrades gracefully. */}
       {TOTAL <= 0 && (
@@ -4100,7 +4092,7 @@ function CardTypeSheet({ T, open, onClose, value, onPick, product, onProduct, ow
 
   const lens = (
     <div style={{ display: 'flex', gap: 4, padding: 4, borderRadius: 12, background: T.dark ? 'rgba(255,255,255,0.07)' : 'rgba(7,3,18,0.05)', marginBottom: 14 }}>
-      {[{ id: 'all', label: 'Everyone' }, ...D0.OWNERS.map((o) => ({ id: o.id, label: o.short }))].map((o) => {
+      {[{ id: 'all', label: 'All' }, ...D0.OWNERS.map((o) => ({ id: o.id, label: o.short }))].map((o) => {
         const active = localOwner === o.id;
         return (
           <button key={o.id} className="pressable" onClick={() => setLocalOwner(o.id)} style={{
